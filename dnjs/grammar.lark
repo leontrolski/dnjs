@@ -1,0 +1,71 @@
+dnjs            : statement* [value _NEWLINE]
+
+?statement      : import_
+                | export
+                | export_default
+                | assignment
+
+?value          : string
+                | SIGNED_NUMBER -> number
+                | "true"        -> true
+                | "false"       -> false
+                | "null"        -> null
+                | dict
+                | list
+                | template
+                | dedent
+                | var
+                | ternary_eq
+                | function_call
+                | map
+                | filter
+                | dict_map
+                | from_entries
+                | node
+                | "(" value ")"
+
+basic_var       : CNAME
+var             : CNAME ("." CNAME)*
+rest_var        : "..." var
+pair            : string ":" value
+?dict_item      : pair  | rest_var
+?list_item      : value | rest_var
+dict            : "{" [dict_item ("," dict_item)*] [","] "}"
+list            : "[" [list_item ("," list_item)*] [","] "]"
+ternary_eq      : value "===" value "?" value ":" value
+destructure     : "{" [var ("," var)*] [","] "}"
+template_string : /(?:`|}).*?(?:`|\${)/ms
+template        : template_string (var template_string)*
+dedent          : "dedent" template
+
+import_         : "import" (basic_var | destructure) "from" string _NEWLINE
+export          : "export" assignment
+export_default  : "export" "default" (value | function) _NEWLINE
+assignment      : "const" basic_var "=" (value | function) _NEWLINE
+function        : "(" [basic_var ("," basic_var)*] [","] ")" "=>" value
+function_call   : "(" var ")(" [value ("," value)*] [","] ")"
+map             : value ".map(" "(" "v" "," "i" ")" "=>" value ")"
+filter          : value ".filter(" "(" "v" "," "i" ")" "=>" value ")"
+dict_map        : "Object.entries(" value ")" ".map(" "(" "[" "k" "," "v" "]" "," "i" ")" "=>" value ")"
+from_entries    : "Object.fromEntries(" value ")"
+
+node            : "m(" "\"" node_properties  "\""  ("," value)*  [","] ")"
+node_properties : [tag] (class_ | id)*
+tag             : HTML_NAME
+class_          : "." HTML_NAME
+id              : "#" HTML_NAME
+
+string          : ESCAPED_STRING
+HTML_NAME       : ("_"|"-"|LETTER) ("_"|"-"|LETTER|DIGIT)*
+_NEWLINE        : NEWLINE
+COMMENT         : "//" /.*/
+
+%import common.LETTER
+%import common.DIGIT
+%import common.ESCAPED_STRING
+%import common.SIGNED_NUMBER
+%import common.WS
+%import common.NEWLINE
+%import common.CNAME
+%ignore WS
+%ignore COMMENT

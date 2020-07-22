@@ -1,0 +1,5 @@
+black
+icdiff
+pip-tools
+prettyprinter
+pytest

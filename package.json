@@ -1,0 +1,29 @@
+{
+  "name": "dnjs",
+  "version": "0.0.1",
+  "description": "DOM Notation JS",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leontrolski/dnjs.git"
+  },
+  "author": "leontrolski@gmail.com",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/leontrolski/dnjs/issues"
+  },
+  "homepage": "https://github.com/leontrolski/dnjs#readme",
+  "dependencies": {
+    "@types/mithril": "^2.0.3",
+    "dedent": "^0.7.0",
+    "html": "^1.0.0",
+    "mithril": "git+https://github.com/leontrolski/mithril.js.git#try-set-global",
+    "mithril-node-render": "^3.0.0",
+    "mocha": "^8.0.1",
+    "typescript": "^3.9.7"
+  }
+}
