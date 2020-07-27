@@ -236,6 +236,6 @@ npm test
 - Name things in the grammar, catch `lark` exceptions and make custom user ones.
 - Write JS library that simply wraps mithril render and has a `dnjs.isValid(path)` function that uses the grammar (doing this may involve removing some `lark`-specific bits in the grammar.
 - Typescript support?
-- Consider what prevents `dnjs` from becoming a data interchange format - eg. infinite recursion.
+- Consider what prevents `dnjs` from becoming a data interchange format - eg. infinite recursion. `--safe` mode should probably have no functions and no imports.
 - Allow importing JSON using Experimental JSON modules](https://nodejs.org/api/esm.html#esm_experimental_json_modules).
 - Remove accidental non-js compatability - eg. functions can look like `()=>{"a": 2}`, template grammar is a bit wacky.

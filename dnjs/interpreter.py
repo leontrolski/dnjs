@@ -189,7 +189,6 @@ def filter_handler(scope: Scope, value: parser.Filter) -> Value:
     assert isinstance(from_value, list)
     out = []
     for i, v in enumerate(from_value):
-        i = float(i)  # no ints in js
         if_value = get({**scope, "v": v, "i": i}, value.if_value)
         # TODO: here and in ternary, make equality as per JS
         if if_value:
