@@ -16,6 +16,13 @@ It is powerful yet familiar, and the reduced syntax makes it easy to implement (
 ╚══════════════════════════════╝
 ```
 
+## Installing the reference interpreter
+
+```bash
+pip install dnjs
+dnjs --help
+```
+
 ## Examples
 
 _Some of these examples reference other files in [the examples folder](examples)._
@@ -41,7 +48,6 @@ export default (environment) => serviceNames.map(
 Let's use the reference implementation written in `Python` to run these (this also has a `Python` API documented below):
 
 ```bash
-pip install dnjs
 dnjs examples/configuration.dn.js examples/environment.json | jq
 ```
 
