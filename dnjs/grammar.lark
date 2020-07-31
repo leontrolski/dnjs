@@ -5,58 +5,45 @@ dnjs            : statement* [value _NEWLINE]
                 | export_default
                 | assignment
 
-?value          : string
+?unambigious    : string
                 | SIGNED_NUMBER -> number
                 | "true"        -> true
                 | "false"       -> false
                 | "null"        -> null
-                | dict
                 | list
                 | template
-                | dedent
-                | var
                 | ternary_eq
                 | function_call
-                | map
-                | filter
-                | dict_map
-                | from_entries
-                | node
                 | "(" value ")"
+                | var
+                | dot
 
-basic_var       : CNAME
-var             : CNAME ("." CNAME)*
-rest_var        : "..." var
+?value          : unambigious
+                | dict
+                | function
+
+var             : CNAME
+dot             : unambigious "." var
+rest_var        : "..." value
 pair            : string ":" value
 ?dict_item      : pair  | rest_var
 ?list_item      : value | rest_var
 dict            : "{" [dict_item ("," dict_item)*] [","] "}"
 list            : "[" [list_item ("," list_item)*] [","] "]"
 ternary_eq      : value "===" value "?" value ":" value
-destructure     : "{" [var ("," var)*] [","] "}"
+dict_destruct   : "{" [var ("," var)*] [","] "}"
+list_destruct   : "[" [var ("," var)*] [","] "]"
 template_string : /(?:`|}).*?(?:`|\${)/ms
-template        : template_string (var template_string)*
-dedent          : "dedent" template
+template        : template_string (value template_string)*
 
-import_         : "import" (basic_var | destructure) "from" string _NEWLINE
+import_         : "import" (var | dict_destruct) "from" string _NEWLINE
 export          : "export" assignment
-export_default  : "export" "default" (value | function) _NEWLINE
-assignment      : "const" basic_var "=" (value | function) _NEWLINE
-function        : "(" [basic_var ("," basic_var)*] [","] ")" "=>" value
-function_call   : "(" var ")(" [value ("," value)*] [","] ")"
-map             : value ".map(" "(" "v" "," "i" ")" "=>" value ")"
-filter          : value ".filter(" "(" "v" "," "i" ")" "=>" value ")"
-dict_map        : "Object.entries(" value ")" ".map(" "(" "[" "k" "," "v" "]" "," "i" ")" "=>" value ")"
-from_entries    : "Object.fromEntries(" value ")"
-
-node            : "m(" "\"" node_properties  "\""  ("," value)*  [","] ")"
-node_properties : [tag] (class_ | id)*
-tag             : HTML_NAME
-class_          : "." HTML_NAME
-id              : "#" HTML_NAME
+export_default  : "export" "default" value _NEWLINE
+assignment      : "const" var "=" value _NEWLINE
+function        : "(" [(var | list_destruct) ("," var)*] [","] ")" "=>" unambigious
+function_call   : unambigious "(" [value ("," value)*] [","] ")"
 
 string          : ESCAPED_STRING
-HTML_NAME       : ("_"|"-"|LETTER) ("_"|"-"|LETTER|DIGIT)*
 _NEWLINE        : NEWLINE
 COMMENT         : "//" /.*/
 

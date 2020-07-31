@@ -1,10 +1,10 @@
 from dataclasses import dataclass
+from functools import partial
 import math
 from pathlib import Path
-from textwrap import dedent
 from typing import Any, Callable, Dict, List, Union
 
-from . import parser
+from . import builtins, parser
 
 
 class Missing:
@@ -32,11 +32,20 @@ class Function:
     scope: Scope
     arg_names: List[str]
     return_value: parser.Value
+    first_arg_is_destructure: bool = False
 
     def __call__(self, *args: Value):
         assert len(self.arg_names) == len(args)
         scope_with_args = {**self.scope, **dict(zip(self.arg_names, args))}
         return get(scope_with_args, self.return_value)
+
+
+@dataclass
+class MakeFunction:
+    f: Callable[[], Value]
+
+    def __call__(self, *args: Value):
+        return self.f(*args)
 
 
 def interpret(path: Path) -> Module:
@@ -58,7 +67,7 @@ def interpret(path: Path) -> Module:
                 module.scope[
                     node.var_or_destructure.name
                 ] = imported_module.default_export
-            elif isinstance(node.var_or_destructure, parser.Destructure):
+            elif isinstance(node.var_or_destructure, parser.DictDestruct):
                 for var in node.var_or_destructure.vars:
                     module.scope[var.name] = imported_module.exports[var.name]
         # assign
@@ -87,28 +96,18 @@ def get(scope: Scope, value: Value) -> Value:
         return dict_handler(scope, value)
     if isinstance(value, parser.Var):
         return var_handler(scope, value)
+    if isinstance(value, parser.Dot):
+        return dot_handler(scope, value)
     if isinstance(value, parser.Function):
         return function_handler(scope, value)
     if isinstance(value, parser.FunctionCall):
         return function_call_handler(scope, value)
     if isinstance(value, parser.TernaryEq):
         return ternary_eq_handler(scope, value)
-    if isinstance(value, parser.Map):
-        return map_handler(scope, value)
-    if isinstance(value, parser.Filter):
-        return filter_handler(scope, value)
-    if isinstance(value, parser.DictMap):
-        return dict_map_handler(scope, value)
-    if isinstance(value, parser.FromEntries):
-        return from_entries_handler(scope, value)
-    if isinstance(value, parser.Node):
-        return node_handler(scope, value)
     if isinstance(value, parser.Template):
         return template_handler(scope, value)
-    if isinstance(value, parser.Dedent):
-        return dedent_handler(scope, value)
     else:
-        raise RuntimeError
+        raise RuntimeError(f"unsupported value type: {type(value)}.\n{value.pretty()}")
 
 
 def list_handler(scope: Scope, value: list) -> Value:
@@ -138,29 +137,57 @@ def dict_handler(scope: Scope, value: dict) -> Value:
 
 
 def var_handler(scope: Scope, value: parser.Var) -> Value:
-    path = list(reversed(value.name.split(".")))
-    out = scope
-    while path:
-        k = path.pop()
-        # handle `.length`
-        if k == "length" and isinstance(out, list):
-            return len(out)
-        out = out[k]
-    return out
+    if value.name == "Object" and "Object" not in scope:
+        return builtins.Object
+    if value.name == "m" and "m" not in scope:
+        return MakeFunction(builtins.m)
+    if value.name == "dedent" and "dedent" not in scope:
+        return MakeFunction(builtins.dedent)
+    return scope[value.name]
+
+
+def dot_handler(scope: Scope, value: parser.Dot) -> Value:
+    left = get(scope, value.left)
+    name = value.right.name
+
+    if isinstance(left, list):
+        if name == "length":
+            return builtins.length(left)
+        if name == "map":
+            return MakeFunction(partial(builtins.map, left))
+        if name == "filter":
+            return MakeFunction(partial(builtins.filter_, left))
+
+    if left is builtins.Object:
+        if name == "fromEntries":
+            return MakeFunction(builtins.from_entries)
+        if name == "entries":
+            return MakeFunction(builtins.entries)
+
+    return left[name]
 
 
 def function_handler(scope: Scope, value: parser.Function) -> Value:
+    arg_names = []
+    first = next(iter(value.args), None)
+    first_arg_is_destructure = isinstance(first, parser.ListDestruct)
+    if first_arg_is_destructure:
+        for var in first.vars:
+            arg_names.append(var.name)
+    for var in value.args[1:] if first_arg_is_destructure else value.args:
+        arg_names.append(var.name)
     return Function(
         scope=scope,
-        arg_names=[a.name for a in value.args],
-        return_value=value.return_value
+        arg_names=arg_names,
+        return_value=value.return_value,
+        first_arg_is_destructure=first_arg_is_destructure,
     )
 
 
 def function_call_handler(scope: Scope, value: parser.FunctionCall) -> Value:
     function = get(scope, value.var)
     values = get(scope, value.values)
-    assert isinstance(function, Function)
+    assert isinstance(function, Function) or isinstance(function, MakeFunction)
     return function(*values)
 
 
@@ -174,104 +201,6 @@ def ternary_eq_handler(scope: Scope, value: parser.TernaryEq) -> Value:
     return if_equal if left == right else if_not_equal
 
 
-def map_handler(scope: Scope, value: parser.Map) -> Value:
-    from_value = get(scope, value.from_value)
-    assert isinstance(from_value, list)
-    out = []
-    for i, v in enumerate(from_value):
-        to_value = get({**scope, "v": v, "i": i}, value.to_value)
-        out.append(to_value)
-    return out
-
-
-def filter_handler(scope: Scope, value: parser.Filter) -> Value:
-    from_value = get(scope, value.from_value)
-    assert isinstance(from_value, list)
-    out = []
-    for i, v in enumerate(from_value):
-        if_value = get({**scope, "v": v, "i": i}, value.if_value)
-        # TODO: here and in ternary, make equality as per JS
-        if if_value:
-            out.append(v)
-    return out
-
-
-def dict_map_handler(scope: Scope, value: parser.DictMap) -> Value:
-    from_value = get(scope, value.from_value)
-    assert isinstance(from_value, dict)
-    out = []
-    for i, [k, v] in enumerate(from_value.items()):
-        to_value = get({**scope, "k": k, "v": v, "i": i}, value.to_value)
-        out.append(to_value)
-    return out
-
-
-def from_entries_handler(scope: Scope, value: parser.FromEntries) -> Value:
-    value = get(scope, value.value)
-    assert isinstance(value, list)
-    out = {}
-    for k, v in value:
-        assert isinstance(k, str)
-        out[k] = v
-    return out
-
-
-def node_handler(scope: Scope, value: parser.Node) -> Value:
-    values = get(scope, value.values)
-    out = {"tag": "div", "attrs": {"className": ""}, "children": []}
-    for p in value.properties:
-        if isinstance(p, parser.Tag):
-            out["tag"] = p.name
-        if isinstance(p, parser.Id):
-            out["attrs"]["id"] = p.name
-        if isinstance(p, parser.Class):
-            out["attrs"]["className"] += f" {p.name.strip()}"
-
-    attrs, tail = [{}, values]
-    if tail and not is_renderable(values[0]):
-        attrs, *tail = tail
-    if "class" in attrs:
-        assert isinstance(attrs["class"], list)
-        attrs = {**attrs}
-        classes = attrs.pop("class")
-        for c in classes:
-            out["attrs"]["className"] += f" {c.strip()}"
-    out["attrs"]["className"] = out["attrs"]["className"].strip()
-    for k, v in attrs.items():
-        out["attrs"][k] = v
-
-    def add_children(v):
-        assert is_renderable(v)
-        if v is None:
-            return
-        if isinstance(v, list):
-            for x in v:
-                add_children(x)
-            return
-        if isinstance(v, (float, int)):
-            v = str(v)
-        out["children"].append(v)
-
-    add_children(tail)
-
-    return out
-
-
 def template_handler(scope: Scope, value: parser.Template) -> Value:
     values = get(scope, value.values)
     return "".join(str(x) for x in values)
-
-
-def dedent_handler(scope: Scope, value: parser.Dedent) -> Value:
-    template_value = get(scope, value.template)
-    return dedent(template_value).strip()
-
-
-def is_vnode(node: Any) -> bool:
-    if not isinstance(node, dict):
-        return False
-    return "tag" in node and "attrs" in node and "children" in node
-
-
-def is_renderable(node: Any) -> bool:
-    return node is None or isinstance(node, (str, float, int, list)) or is_vnode(node)

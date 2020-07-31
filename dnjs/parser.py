@@ -17,12 +17,8 @@ class _Split:
 
 
 @dataclass(frozen=True)
-class Var:
+class Var(_Split):
     name: str
-
-    @classmethod
-    def from_tokens(cls, tokens):
-        return cls(".".join(tokens))
 
 
 @dataclass(frozen=True)
@@ -50,14 +46,25 @@ def number_handler(_, tokens) -> Union[float, int]:
 Value = Union[dict, list, str, float, int, bool, None, Var, RestVar]  # not sure this is true
 
 
+@dataclass(frozen=True)
+class Dot(_Split):
+    left: Value
+    right: str
+
+
 @dataclass
-class Destructure:
+class DictDestruct:
+    vars: List[Var]
+
+
+@dataclass
+class ListDestruct:
     vars: List[Var]
 
 
 @dataclass
 class Import(_Split):
-    var_or_destructure: Union[Var, Destructure]
+    var_or_destructure: Union[Var, DictDestruct]
     path: str
 
 
@@ -125,37 +132,6 @@ class DictMap(_Split):
     to_value: Value
 
 
-@dataclass
-class FromEntries(_Split):
-    value: Value
-
-
-@dataclass
-class Tag(_Split):
-    name: str
-
-
-@dataclass
-class Class(_Split):
-    name: str
-
-
-@dataclass
-class Id(_Split):
-    name: str
-
-
-@dataclass
-class Node:
-    properties: List[Union[Tag, Class, Id]]
-    values: List[Value]
-
-    @classmethod
-    def from_tokens(cls, tokens):
-        [properties, *values] = tokens
-        return cls(properties, values)
-
-
 def template_string(_, tokens) -> str:
     [s] = tokens
     s = str(s)
@@ -176,11 +152,6 @@ class Template:
 
 
 @dataclass
-class Dedent(_Split):
-    template: Template
-
-
-@dataclass
 class Dnjs:
     values: List[Value]
 
@@ -190,7 +161,9 @@ class TreeToJson(Transformer):
     var = Var.from_tokens
     basic_var = Var.from_tokens
     rest_var = RestVar.from_tokens
-    destructure = Destructure
+    dot = Dot.from_tokens
+    dict_destruct = DictDestruct
+    list_destruct = ListDestruct
     import_ = Import.from_tokens
     assignment = Assignment.from_tokens
     export_default = ExportDefault.from_tokens
@@ -198,19 +171,9 @@ class TreeToJson(Transformer):
     function = Function.from_tokens
     ternary_eq = TernaryEq.from_tokens
     function_call = FunctionCall.from_tokens
-    map = Map.from_tokens
-    filter = Filter.from_tokens
-    dict_map = DictMap.from_tokens
-    from_entries = FromEntries.from_tokens
-    tag = Tag.from_tokens
-    class_ = Class.from_tokens
-    id = Id.from_tokens
-    node_properties = list
-    node = Node.from_tokens
-    HTML_NAME = str
     template_string = template_string
     template = Template
-    dedent = Dedent.from_tokens
+    CNAME = str
     string = string_handler
     number = number_handler
     list = list

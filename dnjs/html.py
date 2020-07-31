@@ -5,7 +5,7 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from . import interpreter
+from . import builtins, interpreter
 
 SELF_CLOSING = {
     "area",
@@ -37,7 +37,7 @@ def make_value_js_friendly(value: interpreter.Value) -> interpreter.Value:
 
 
 def to_html(value: interpreter.Value, prettify: bool=True) -> str:
-    assert interpreter.is_renderable(value)
+    assert builtins.is_renderable(value)
     if value is None:
         return ""
     if isinstance(value, str):

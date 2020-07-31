@@ -7,7 +7,9 @@ from dnjs.parser import (
     Import,
     Var,
     RestVar,
-    Destructure,
+    DictDestruct,
+    ListDestruct,
+    Dot,
     Assignment,
     ExportDefault,
     Export,
@@ -17,11 +19,6 @@ from dnjs.parser import (
     Map,
     Filter,
     DictMap,
-    FromEntries,
-    Tag,
-    Class,
-    Id,
-    Node,
     Template,
 )
 
@@ -101,10 +98,10 @@ def test_parser_add_imports():
         """\
         dnjs
             import_
-                basic_var	m
+                var	m
                 string	"mithril"
             import_
-                destructure
+                dict_destruct
                     var	base
                     var	form
                 string	"./base.dn.js"
@@ -126,7 +123,7 @@ def test_parser_add_imports():
     expected = Dnjs(
         [
             Import(Var("m"), "mithril"),
-            Import(Destructure([Var(name="base"), Var(name="form")]), "./base.dn.js"),
+            Import(DictDestruct([Var(name="base"), Var(name="form")]), "./base.dn.js"),
             {"key": ["item0", "item1", 3.14, True]},
         ]
     )
@@ -141,26 +138,26 @@ def test_parser_add_assignments_reference_and_rest():
     """
     expected = dedent(
         """\
-        dnjs
-            assignment
-                basic_var	foo
-                number	45
-            assignment
-                basic_var	bar
-                dict
-            dict
-                pair
-                    string	"key"
-                    list
-                        string	"item0"
-                        string	"item1"
-                        number	3.14
-                        rest_var
-                            var	foo
-                        true
-                        var	bar
-                rest_var
+            dnjs
+                assignment
                     var	foo
+                    number	45
+                assignment
+                    var	bar
+                    dict
+                dict
+                    pair
+                        string	"key"
+                        list
+                            string	"item0"
+                            string	"item1"
+                            number	3.14
+                            rest_var
+                                var	foo
+                            true
+                            var	bar
+                    rest_var
+                        var	foo
     """
     )
     tree = pre_parse(text)
@@ -170,18 +167,18 @@ def test_parser_add_assignments_reference_and_rest():
     actual = parse(text)
     expected = Dnjs(
         [
-            Assignment(var=Var("foo"), value=45.0),
-            Assignment(var=Var("bar"), value={}),
+            Assignment(var=Var(name="foo"), value=45),
+            Assignment(var=Var(name="bar"), value={}),
             {
+                RestVar(var=Var(name="foo")): None,
                 "key": [
                     "item0",
                     "item1",
                     3.14,
                     RestVar(var=Var(name="foo")),
                     True,
-                    Var("bar"),
+                    Var(name="bar"),
                 ],
-                RestVar(var=Var(name="foo")): None,
             },
         ]
     )
@@ -203,7 +200,7 @@ def test_parser_add_export():
                     number	6
             export
                 assignment
-                    basic_var	base
+                    var	base
                     number	42
             dict
                 pair
@@ -234,34 +231,34 @@ def test_parser_add_top_level_functions():
     text = """
         const f = () => 42
         export default (a) => a
-        export const otherF = (a, b, c) => {"foo": [1]}
-        const foo = [(f)(), (otherF)(a, b, c)]
+        export const otherF = (a, b, c) => ({"foo": [1]})
+        const foo = [f(), otherF(a, b, c)]
     """
     expected = dedent(
         """\
         dnjs
             assignment
-                basic_var	f
+                var	f
                 function
                     number	42
             export_default
                 function
-                    basic_var	a
+                    var	a
                     var	a
             export
                 assignment
-                    basic_var	otherF
+                    var	otherF
                     function
-                        basic_var	a
-                        basic_var	b
-                        basic_var	c
+                        var	a
+                        var	b
+                        var	c
                         dict
                             pair
                                 string	"foo"
                                 list
                                     number	1
             assignment
-                basic_var	foo
+                var	foo
                 list
                     function_call
                         var	f
@@ -279,14 +276,16 @@ def test_parser_add_top_level_functions():
     actual = parse(text)
     expected = Dnjs(
         [
-            Assignment(var=Var(name="f"), value=Function(args=[], return_value=42.0)),
-            ExportDefault(Function(args=[Var(name="a")], return_value=Var(name="a"))),
+            Assignment(var=Var(name="f"), value=Function(args=[], return_value=42)),
+            ExportDefault(
+                value=Function(args=[Var(name="a")], return_value=Var(name="a"))
+            ),
             Export(
-                Assignment(
+                assignment=Assignment(
                     var=Var(name="otherF"),
                     value=Function(
                         args=[Var(name="a"), Var(name="b"), Var(name="c")],
-                        return_value={"foo": [1.0]},
+                        return_value={"foo": [1]},
                     ),
                 )
             ),
@@ -345,7 +344,7 @@ def test_parser_add_ternary():
 
 def test_parser_add_map_and_filter():
     text = """
-        const a = [4, 5, 6].map((v, i) => 42).filter((v, i) => i === 0 ? v : null)
+        const a = [4, 5, 6].map((v, i) => 42).filter((v, i) => (i === 0 ? v : null) )
         const a = Object.entries(foo.bar).map(([k, v], i) => v)
         Object.fromEntries(a.b.map((v, i) => 42))
     """
@@ -353,32 +352,61 @@ def test_parser_add_map_and_filter():
         """\
         dnjs
             assignment
-                basic_var	a
-                filter
-                    map
-                        list
-                            number	4
-                            number	5
-                            number	6
-                        number	42
-                    ternary_eq
-                        var	i
-                        number	0
+                var	a
+                function_call
+                    dot
+                        function_call
+                            dot
+                                list
+                                    number	4
+                                    number	5
+                                    number	6
+                                var	map
+                            function
+                                var	v
+                                var	i
+                                number	42
+                        var	filter
+                    function
                         var	v
-                        null
+                        var	i
+                        ternary_eq
+                            var	i
+                            number	0
+                            var	v
+                            null
             assignment
-                basic_var	a
-                dict_map
-                    var
-                        foo
-                        bar
-                    var	v
-            from_entries
-                map
-                    var
-                        a
-                        b
-                    number	42
+                var	a
+                function_call
+                    dot
+                        function_call
+                            dot
+                                var	Object
+                                var	entries
+                            dot
+                                var	foo
+                                var	bar
+                        var	map
+                    function
+                        list_destruct
+                            var	k
+                            var	v
+                        var	i
+                        var	v
+            function_call
+                dot
+                    var	Object
+                    var	fromEntries
+                function_call
+                    dot
+                        dot
+                            var	a
+                            var	b
+                        var	map
+                    function
+                        var	v
+                        var	i
+                        number	42
     """
     )
     tree = pre_parse(text)
@@ -387,21 +415,71 @@ def test_parser_add_map_and_filter():
 
     actual = parse(text)
     expected = Dnjs(
-        [
+        values=[
             Assignment(
-                Var("a"),
-                Filter(
-                    Map([4.0, 5.0, 6.0], 42.0),
-                    TernaryEq(
-                        left=Var(name="i"),
-                        right=0.0,
-                        if_equal=Var(name="v"),
-                        if_not_equal=None,
+                var=Var(name="a"),
+                value=FunctionCall(
+                    var=Dot(
+                        left=FunctionCall(
+                            var=Dot(left=[4, 5, 6], right=Var(name="map")),
+                            values=[
+                                Function(
+                                    args=[Var(name="v"), Var(name="i")], return_value=42
+                                )
+                            ],
+                        ),
+                        right=Var(name="filter"),
                     ),
+                    values=[
+                        Function(
+                            args=[Var(name="v"), Var(name="i")],
+                            return_value=TernaryEq(
+                                left=Var(name="i"),
+                                right=0,
+                                if_equal=Var(name="v"),
+                                if_not_equal=None,
+                            ),
+                        )
+                    ],
                 ),
             ),
-            Assignment(Var("a"), DictMap(Var(name="foo.bar"), Var(name="v"))),
-            FromEntries(Map(Var(name="a.b"), 42.0)),
+            Assignment(
+                var=Var(name="a"),
+                value=FunctionCall(
+                    var=Dot(
+                        left=FunctionCall(
+                            var=Dot(left=Var(name="Object"), right=Var(name="entries")),
+                            values=[Dot(left=Var(name="foo"), right=Var(name="bar"))],
+                        ),
+                        right=Var(name="map"),
+                    ),
+                    values=[
+                        Function(
+                            args=[
+                                ListDestruct(vars=[Var(name="k"), Var(name="v")]),
+                                Var(name="i"),
+                            ],
+                            return_value=Var(name="v"),
+                        )
+                    ],
+                ),
+            ),
+            FunctionCall(
+                var=Dot(left=Var(name="Object"), right=Var(name="fromEntries")),
+                values=[
+                    FunctionCall(
+                        var=Dot(
+                            left=Dot(left=Var(name="a"), right=Var(name="b")),
+                            right=Var(name="map"),
+                        ),
+                        values=[
+                            Function(
+                                args=[Var(name="v"), Var(name="i")], return_value=42
+                            )
+                        ],
+                    )
+                ],
+            ),
         ]
     )
     assert actual == expected
@@ -417,28 +495,23 @@ def test_parser_add_nodes():
         """\
         dnjs
             assignment
-                basic_var	a
-                node
-                    node_properties
-                        tag	li
+                var	a
+                function_call
+                    var	m
+                    string	"li"
                     string	"hello"
             assignment
-                basic_var	a
-                node
-                    node_properties
-                        tag	li
-                        id	my-li
-                        class_	foo
-                        class_	bar
+                var	a
+                function_call
+                    var	m
+                    string	"li#my-li.foo.bar"
                     string	"hello"
                     list
                         number	1
                         number	2
-            node
-                node_properties
-                    class_	foo
-                    id	my-li
-                    class_	bar
+            function_call
+                var	m
+                string	".foo#my-li.bar"
     """
     )
     tree = pre_parse(text)
@@ -447,16 +520,18 @@ def test_parser_add_nodes():
 
     actual = parse(text)
     expected = Dnjs(
-        [
-            Assignment(Var("a"), Node(properties=[Tag("li")], values=["hello"])),
+        values=[
             Assignment(
-                Var("a"),
-                Node(
-                    properties=[Tag("li"), Id("my-li"), Class("foo"), Class("bar")],
-                    values=["hello", [1.0, 2.0]],
+                var=Var(name="a"),
+                value=FunctionCall(var=Var(name="m"), values=["li", "hello"]),
+            ),
+            Assignment(
+                var=Var(name="a"),
+                value=FunctionCall(
+                    var=Var(name="m"), values=["li#my-li.foo.bar", "hello", [1, 2]]
                 ),
             ),
-            Node(properties=[Class("foo"), Id("my-li"), Class("bar")], values=[]),
+            FunctionCall(var=Var(name="m"), values=[".foo#my-li.bar"]),
         ]
     )
     assert actual == expected
@@ -486,11 +561,11 @@ def test_parser_add_template():
 
     actual = parse(text)
     expected = Dnjs(
-        [
-            Assignment(Var("a"), Template(values=["hi"])),
+        values=[
+            Assignment(var=Var(name="a"), value=Template(values=["hi"])),
             Assignment(
-                Var("a"),
-                Template(
+                var=Var(name="a"),
+                value=Template(
                     values=[
                         "hi ",
                         Var(name="first"),
@@ -503,19 +578,34 @@ def test_parser_add_template():
                 ),
             ),
             Assignment(
-                Var("a"),
-                Template(
+                var=Var(name="a"),
+                value=Template(
                     values=["  hi ", Var(name="first"), "", Var(name="second"), ""]
                 ),
             ),
             Assignment(
-                Var("a"), Template(values=["$", Var(name="money.amount"), ".00"])
+                var=Var(name="a"),
+                value=Template(
+                    values=[
+                        "$",
+                        Dot(left=Var(name="money"), right=Var(name="amount")),
+                        ".00",
+                    ]
+                ),
             ),
             Assignment(
                 var=Var(name="a"),
                 value=Template(values=["many\n", Var(name="foo"), "\nlin//es"]),
             ),
-            [Template(values=["foo $", Var(name="money.amount"), ".00"])],
+            [
+                Template(
+                    values=[
+                        "foo $",
+                        Dot(left=Var(name="money"), right=Var(name="amount")),
+                        ".00",
+                    ]
+                )
+            ],
         ]
     )
     assert actual == expected

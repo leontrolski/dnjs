@@ -9,5 +9,5 @@ const makeService = (environment, serviceName) => ({
 })
 
 export default (environment) => serviceNames.map(
-    (v, i) => (makeService)(environment, v)
+    (v, i) => makeService(environment, v)
 )

@@ -41,7 +41,7 @@ const makeService = (environment, serviceName) => ({
 })
 
 export default (environment) => serviceNames.map(
-    (v, i) => (makeService)(environment, v)
+    (v, i) => makeService(environment, v)
 )
 ```
 
@@ -73,13 +73,15 @@ Gives us:
 Given the file `commentsPage.dn.js`:
 
 ```js
+import m from "mithril"
+
 import { page } from "./basePage.dn.js"
 
 const commentList = (comments) => m("ul",
-    comments.map((v, i) => m("li", `Says: ${v.text}`))
+    comments.map((comment, i) => m("li", `Comment ${i} says: ${comment.text}`))
 )
 
-export default (comments) => (page)((commentList)(comments))
+export default (comments) => page(commentList(comments))
 ```
 
 Then in a python webserver we can render the file as `html`:
@@ -104,10 +106,10 @@ And the endpoint will return:
     <body>
         <ul>
             <li>
-                Says: hiya!
+                Comment 0 says: hiya!
             </li>
             <li>
-                Says: oioi
+                Comment 1 says: oioi
             </li>
         </ul>
     </body>
@@ -154,11 +156,11 @@ Here are all the extensions to `JSON`, the grammar can be found [here](dnjs/gram
 - `import { c } from "./b.dn.js"`, `import b from "./b.dn.js"`. Non-local imports are simply ignored (so as to allow importing `m` as anything).
 - `export default a`, `export const b = c`.
 - `dict`s and `list`s can be splatted with rest syntax: `{...a}`/`[...a]`.
-- Functions can be defined only at the top level of files with `const f = (a, b) => c` syntax. _When calling other custom defined `dnjs` functions, it is necessary to call them like `(f)(1, 2)` (as opposed to `f(1, 2)` - this is to help keep the grammar simple._
+- Functions can be defined with `const f = (a, b) => c` syntax.
 - Ternary expressions, _only_ in the form `a === b ? c : d`. Equality should be implemented however `JavaScript` does.
-- Map, filter, map over dict, dict from entries, always in the form `a.map((v, i) => b)`, `a.filter((v, i) => b)`, `Object.entries(a).map(([k, v], i) => b)`, `Object.fromEntries(a)`. Note `k`, `v`, `i` _must_ be named as above.
+- Map, filter, map over dict, dict from entries, always in the form `a.map((v, i) => b)`, `a.filter((v, i) => b)`, `Object.entries(a).map(([k, v], i) => b)`, `Object.fromEntries(a)`.
 - Hyperscript, somewhat compatible with [mithril](https://mithril.js.org/) - `m("sometag#some-id.some-class.other-class", {"href": "foo.js", "class": ["another-class"]}, children)`, this evaluates to `dict`s like `{"tag": "sometag", "attrs": {"id": "some-id", className: "some-class other-class another-class", "href": "foo.js", "children": children}`.
-- Multiline templates in the form `` `foo ${a}` ``, `` dedent`foo ${a}` ``. `dedent` should work the same as [this npm package](https://www.npmjs.com/package/dedent).
+- Multiline templates in the form `` `foo ${a}` ``, `` dedent(`foo ${a}`) ``. `dedent` should work the same as [this npm package](https://www.npmjs.com/package/dedent).
 - Lists have a `.length` attribute.
 
 ## Name
@@ -238,4 +240,5 @@ npm test
 - Typescript support?
 - Consider what prevents `dnjs` from becoming a data interchange format - eg. infinite recursion. `--safe` mode should probably have no functions and no imports.
 - Allow importing JSON using Experimental JSON modules](https://nodejs.org/api/esm.html#esm_experimental_json_modules).
-- Remove accidental non-js compatability - eg. functions can look like `()=>{"a": 2}`, template grammar is a bit wacky.
+- Remove accidental non-js compatability - eg. template grammar is a bit wacky.
+- Handle _ambig
