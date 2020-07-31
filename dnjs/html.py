@@ -64,7 +64,7 @@ def to_html(value: interpreter.Value, prettify: bool=True) -> str:
         elif isinstance(v, str):
             attrs_str += f' {escape(k)}="{escape(v)}"'
         else:
-            raise RuntimeError
+            raise RuntimeError(f"unable to convert type {type(v)}")
 
     is_self_closing = tag in SELF_CLOSING and not children
     html_str = f"<{escape(tag)} {attrs_str}>"
