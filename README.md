@@ -210,6 +210,13 @@ Pin requirements with:
 pip-compile -q; cat requirements.in requirements-dev.in | pip-compile -q --output-file=requirements-dev.txt -
 ```
 
+Rebuild and publish (after upversioning) with:
+
+```bash
+# up version setup.py
+rm dist/*; python setup.py sdist bdist_wheel; twine upload dist/*
+```
+
 ## JS
 
 _Javascript validation library to follow - see `TODO` section below._
