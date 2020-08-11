@@ -31,7 +31,7 @@ def test_parser_empty():
 
 
 def test_parser_json():
-    text = '{"key": ["item0", "item1", 3.14, true]}'
+    text = '''{"key": ["item0", "item1", 3.14, true, "\\"baz\\""]}'''
     expected = dedent(
         """\
         dnjs
@@ -43,6 +43,7 @@ def test_parser_json():
                         string	"item1"
                         number	3.14
                         true
+                        string	"\\"baz\\""
     """
     )
     tree = pre_parse(text)
@@ -50,7 +51,7 @@ def test_parser_json():
     assert actual.splitlines() == expected.splitlines()
 
     actual = parse(text)
-    expected = Dnjs([{"key": ["item0", "item1", 3.14, True]}])
+    expected = Dnjs([{"key": ["item0", "item1", 3.14, True, '\"baz\"']}])
     assert actual == expected
 
 

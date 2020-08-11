@@ -89,4 +89,4 @@ def test_templates():
     actual = get_named_export(data_dir / "template.dn.js", "b")
     assert actual == "hello oli,\nyou are 29"
     actual = get_named_export(data_dir / "template.dn.js", "c")
-    assert actual == "cat foo.txt > bar\ntail /dev/null"
+    assert actual == {"foo": "\"hullo\"\ncat foo.txt > bar\ntail /dev/null", "bar": "\"baz\""}

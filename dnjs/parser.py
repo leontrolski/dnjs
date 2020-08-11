@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
@@ -33,14 +34,12 @@ def dict_handler(_, values: List[Any]) -> dict:
 
 def string_handler(_, tokens) -> str:
     [s] = tokens
-    return s[1:-1]
+    return json.loads(s)
 
 
 def number_handler(_, tokens) -> Union[float, int]:
     [n] = tokens
-    if "." in n:
-        return float(n)
-    return int(n)
+    return json.loads(n)
 
 
 Value = Union[dict, list, str, float, int, bool, None, Var, RestVar]  # not sure this is true
