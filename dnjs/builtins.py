@@ -56,6 +56,10 @@ def map(value: List["interpreter.Value"], f: "interpreter.Function") -> list:
     return out
 
 
+def includes(value: List["interpreter.Value"], v: "interpreter.Value") -> bool:
+    return v in value
+
+
 # global variables
 
 

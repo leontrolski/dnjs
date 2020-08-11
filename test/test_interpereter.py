@@ -55,6 +55,12 @@ def test_map():
     actual = get_named_export(data_dir / "map.dn.js", "c")
     assert actual == {"5": 6.0, "7": 8.0}
 
+    actual = get_named_export(data_dir / "map.dn.js", "d")
+    assert actual == True
+
+    actual = get_named_export(data_dir / "map.dn.js", "e")
+    assert actual == False
+
 
 def test_nodes():
     actual = get_named_export(data_dir / "node.dn.js", "a")

@@ -158,10 +158,10 @@ Here are all the extensions to `JSON`, the grammar can be found [here](dnjs/gram
 - `dict`s and `list`s can be splatted with rest syntax: `{...a}`/`[...a]`.
 - Functions can be defined with `const f = (a, b) => c` syntax.
 - Ternary expressions, _only_ in the form `a === b ? c : d`. Equality should be implemented however `JavaScript` does.
-- Map, filter, map over dict, dict from entries, always in the form `a.map((v, i) => b)`, `a.filter((v, i) => b)`, `Object.entries(a).map(([k, v], i) => b)`, `Object.fromEntries(a)`.
+- Map, filter, map over dict, dict from entries, in the form `a.map((v, i) => b)`, `a.filter((v, i) => b)`, `Object.entries(a).map(([k, v], i) => b)`, `Object.fromEntries(a)`.
 - Hyperscript, somewhat compatible with [mithril](https://mithril.js.org/) - `m("sometag#some-id.some-class.other-class", {"href": "foo.js", "class": ["another-class"]}, children)`, this evaluates to `dict`s like `{"tag": "sometag", "attrs": {"id": "some-id", className: "some-class other-class another-class", "href": "foo.js", "children": children}`.
 - Multiline templates in the form `` `foo ${a}` ``, `` dedent(`foo ${a}`) ``. `dedent` should work the same as [this npm package](https://www.npmjs.com/package/dedent).
-- Lists have a `.length` attribute.
+- Lists have `.length`, `.includes(a)` attributes.
 
 ## Name
 

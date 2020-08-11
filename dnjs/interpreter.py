@@ -157,6 +157,8 @@ def dot_handler(scope: Scope, value: parser.Dot) -> Value:
             return MakeFunction(partial(builtins.map, left))
         if name == "filter":
             return MakeFunction(partial(builtins.filter_, left))
+        if name == "includes":
+            return MakeFunction(partial(builtins.includes, left))
 
     if left is builtins.Object:
         if name == "fromEntries":
