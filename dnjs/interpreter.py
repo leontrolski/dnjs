@@ -49,8 +49,7 @@ class MakeFunction:
 
 
 def interpret(path: Path) -> Module:
-    with open(path) as f:
-        ast = parser.parse(f.read())
+    ast = parser.parse(path.read_text())
 
     module = Module(path=path, scope={}, exports={}, default_export=missing, value=missing)
     for node in ast.values:

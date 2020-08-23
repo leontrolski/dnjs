@@ -3,7 +3,12 @@ import json
 import click
 
 from . import get_default_export, get_named_export
-from . import parser, interpreter, html as dnjs_html
+from . import (
+    css as dnjs_css,
+    parser,
+    interpreter,
+    html as dnjs_html,
+)
 
 
 @click.command(help="""
@@ -13,10 +18,11 @@ to the evaluated dnjs if it is a function.
 """)
 @click.argument('filename', type=click.Path(exists=True))
 @click.option('--html', is_flag=True, help='Post process m(...) nodes to <html>.')
+@click.option('--css', is_flag=True, help='Post process css')
 @click.option('--name', help='Pick an exported variable to return as opposed to the default.')
 @click.argument('args', nargs=-1, type=click.File('r'))
 @click.option('--pdb', is_flag=True, help='Drop into the debugger on failure.')
-def main(filename, html, name, args, pdb):
+def main(filename, html, css, name, args, pdb):
     try:
         if name:
             value = get_named_export(filename, name)
@@ -37,6 +43,8 @@ def main(filename, html, name, args, pdb):
 
         if html:
             print(dnjs_html.to_html(value))
+        elif css:
+            print(dnjs_css.to_css(value))
         else:
             print(json.dumps(value))
     except:

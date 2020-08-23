@@ -145,6 +145,28 @@ Note, that without the `--html` flag, we still make the following `JSON`, the co
 ...
 ```
 
+### For `css` templating
+
+Using `--css` will post-process eg:
+
+```js
+export default {
+  ".bold": {"font-weight": "bold"},
+  ".red": {"color": "red"},
+}
+```
+
+to:
+
+```css
+.bold {
+    font-weight: bold;
+}
+.red {
+    color: red;
+}
+```
+
 ## How exactly does `dnjs` extend `JSON`?
 
 Remember `dnjs` is a **restriction** of `JavaScript`, the aim is not to implement all of it, any more than `JSON` is.
