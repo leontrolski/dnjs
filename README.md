@@ -36,8 +36,8 @@ import { environments } from "./global.dn.js"
 const serviceNames = ["signup", "account"]
 
 const makeService = (environment, serviceName) => ({
-    "name": serviceName,
-    "ip": environment === environments.PROD ? "189.34.0.4" : "127.0.0.1"
+    name: serviceName,
+    ip: environment === environments.PROD ? "189.34.0.4" : "127.0.0.1"
 })
 
 export default (environment) => serviceNames.map(
@@ -175,13 +175,14 @@ Here are all the extensions to `JSON`, the grammar can be found [here](dnjs/gram
 
 - Comments with `//`.
 - Optional trailing commas.
+- Unquoted keys in objects.
 - `import { c } from "./b.dn.js"`, `import b from "./b.dn.js"`. Non-local imports are simply ignored (so as to allow importing `m` as anything).
 - `export default a`, `export const b = c`.
 - `dict`s and `list`s can be splatted with rest syntax: `{...a}`/`[...a]`.
 - Functions can be defined with `const f = (a, b) => c` syntax.
 - Ternary expressions, _only_ in the form `a === b ? c : d`. Equality should be implemented however `JavaScript` does.
 - Map, filter, map over dict, dict from entries, in the form `a.map((v, i) => b)`, `a.filter((v, i) => b)`, `Object.entries(a).map(([k, v], i) => b)`, `Object.fromEntries(a)`.
-- Hyperscript, somewhat compatible with [mithril](https://mithril.js.org/) - `m("sometag#some-id.some-class.other-class", {"href": "foo.js", "class": ["another-class"]}, children)`, this evaluates to `dict`s like `{"tag": "sometag", "attrs": {"id": "some-id", className: "some-class other-class another-class", "href": "foo.js", "children": children}`.
+- Hyperscript, somewhat compatible with [mithril](https://mithril.js.org/) - `m("sometag#some-id.some-class.other-class", {"href": "foo.js", "class": ["another-class"]}, children)`, this evaluates to `dict`s like `{"tag": "sometag", "attrs": {"id": "some-id", className: "some-class other-class another-class", "href": "foo.js", "children": children}`. `m.trust(a)` to not escape html.
 - Multiline templates in the form `` `foo ${a}` ``, `` dedent(`foo ${a}`) ``. `dedent` should work the same as [this npm package](https://www.npmjs.com/package/dedent).
 - Lists have `.length`, `.includes(a)` attributes.
 
@@ -260,7 +261,6 @@ npm test
   - Write up why we don't need filters like | to_human.
 - Consider `onclick`, `onkeydown`, `on...` functions... and how we want to handle them / attach them on reaching the browser in a isomophic setup.
 - Decide what else should be added:
-  - Allow skipping escaping with `m.trust()`?
   - Common string functions like upper case, replace etc?
   - `parseInt` etc..
 - Standalone (in `c`/`rust`/`go`? with `Python` bindings) to JSON program.

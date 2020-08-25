@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import re
 import textwrap
 from typing import Any, List, Tuple
@@ -67,6 +68,16 @@ def dedent(value: str) -> str:
     return textwrap.dedent(value).strip()
 
 
+@dataclass
+class TrustedHtml:
+    string: str
+
+
+def m_dot_trust(value: "interpreter.Value") -> TrustedHtml:
+    assert isinstance(value, str)
+    return TrustedHtml(value)
+
+
 def m(properties: str, *args: List["interpreter.Value"]) -> "interpreter.Value":
     out = {"tag": "div", "attrs": {"className": ""}, "children": []}
 
@@ -121,4 +132,4 @@ def _is_vnode(node: Any) -> bool:
 
 
 def is_renderable(node: Any) -> bool:
-    return node is None or isinstance(node, (str, float, int, list)) or _is_vnode(node)
+    return node is None or isinstance(node, (str, float, int, list, TrustedHtml)) or _is_vnode(node)

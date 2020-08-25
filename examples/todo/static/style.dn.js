@@ -1,16 +1,14 @@
-// rebuild .css file with
-// dnjs examples/todo/style.dn.js --css > examples/todo/static/style.css
+const namespace = "todo"
 
 const _classes = {
-    "bold": {
+    bold: {
         "font-weight": "bold",
     },
-    "red": {
+    red: {
         "color": "red",
     },
 }
 
-const namespace = "todo"
 // export classes = {"bold": "todo-bold", ...}
 // export default = {".todo-bold": {...}, ...}
 export const classes = Object.fromEntries(

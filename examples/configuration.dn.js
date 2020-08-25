@@ -4,8 +4,8 @@ import { environments } from "./global.dn.js"
 const serviceNames = ["signup", "account"]
 
 const makeService = (environment, serviceName) => ({
-    "name": serviceName,
-    "ip": environment === environments.PROD ? "189.34.0.4" : "127.0.0.1"
+    name: serviceName,
+    ip: environment === environments.PROD ? "189.34.0.4" : "127.0.0.1"
 })
 
 export default (environment) => serviceNames.map(

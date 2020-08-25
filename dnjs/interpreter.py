@@ -87,7 +87,7 @@ def interpret(path: Path) -> Module:
 
 
 def get(scope: Scope, value: Value) -> Value:
-    if value is None or isinstance(value, (str, float, int, bool)):
+    if value is None or isinstance(value, (str, float, int, bool, builtins.TrustedHtml)):
         return value
     if isinstance(value, list):
         return list_handler(scope, value)
@@ -135,11 +135,14 @@ def dict_handler(scope: Scope, value: dict) -> Value:
     return out
 
 
+_m = MakeFunction(builtins.m)
+
+
 def var_handler(scope: Scope, value: parser.Var) -> Value:
     if value.name == "Object" and "Object" not in scope:
         return builtins.Object
     if value.name == "m" and "m" not in scope:
-        return MakeFunction(builtins.m)
+        return _m
     if value.name == "dedent" and "dedent" not in scope:
         return MakeFunction(builtins.dedent)
     return scope[value.name]
@@ -158,6 +161,10 @@ def dot_handler(scope: Scope, value: parser.Dot) -> Value:
             return MakeFunction(partial(builtins.filter_, left))
         if name == "includes":
             return MakeFunction(partial(builtins.includes, left))
+
+    if left is _m:
+        if name == "trust":
+            return MakeFunction(builtins.m_dot_trust)
 
     if left is builtins.Object:
         if name == "fromEntries":

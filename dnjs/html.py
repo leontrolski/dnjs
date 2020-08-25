@@ -40,6 +40,8 @@ def to_html(value: interpreter.Value, prettify: bool=True) -> str:
     assert builtins.is_renderable(value)
     if value is None:
         return ""
+    if isinstance(value, builtins.TrustedHtml):
+        return value.string
     if isinstance(value, str):
         return escape(value)
     if isinstance(value, (float, int)):
@@ -69,7 +71,7 @@ def to_html(value: interpreter.Value, prettify: bool=True) -> str:
     is_self_closing = tag in SELF_CLOSING and not children
     html_str = f"<{escape(tag)} {attrs_str}>"
     if not is_self_closing:
-        html_str += ''.join(to_html(c) for c in children)
+        html_str += ''.join(to_html(c, prettify=prettify) for c in children)
         html_str += f"</{escape(tag)}>"
     if prettify:
         html_str = BeautifulSoup(html_str, features="html.parser").prettify()

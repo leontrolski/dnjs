@@ -1,0 +1,8 @@
+#!/bin/bash
+cd "$(dirname "$0")/../.."
+
+# install requirements with:
+#
+#     pip install dnjs fastapi uvicorn aiofiles
+#
+uvicorn todo.app:app --reload

@@ -25,7 +25,7 @@ dnjs            : statement* [value _NEWLINE]
 var             : CNAME
 dot             : unambigious "." var
 rest_var        : "..." value
-pair            : string ":" value
+pair            : (string | CNAME) ":" value
 ?dict_item      : pair  | rest_var
 ?list_item      : value | rest_var
 dict            : "{" [dict_item ("," dict_item)*] [","] "}"

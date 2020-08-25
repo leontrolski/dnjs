@@ -1,4 +1,4 @@
 export const environments = {
-    "DEV": "DEV",
-    "PROD": "PROD",
+    DEV: "DEV",
+    PROD: "PROD",
 }

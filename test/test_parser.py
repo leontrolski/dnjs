@@ -92,7 +92,7 @@ def test_parser_add_imports():
         import { base, form } from "./base.dn.js"
 
         {
-            "key": ["item0", "item1", 3.14, true],
+            key: ["item0", "item1", 3.14, true],
         }
     """
     expected = dedent(
@@ -108,7 +108,7 @@ def test_parser_add_imports():
                 string	"./base.dn.js"
             dict
                 pair
-                    string	"key"
+                    key
                     list
                         string	"item0"
                         string	"item1"
