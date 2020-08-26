@@ -11,10 +11,8 @@ const todoList = () => m("",
 )
 
 window.onload = async () => {
-    // load todos
     const resp = await m.request({url: "/todos"})
     state.todos = resp.todos
-    // mount vdom
     const todoListEl = document.getElementById("todo-list")
     m.mount(todoListEl, {view: todoList})
 }
