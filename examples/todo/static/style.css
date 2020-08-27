@@ -1,7 +1,21 @@
-/* Generated from style.dn.js */
+/* Generated from shared/style.dn.js */
+body {
+    font-family: sans-serif;
+}
+ul {
+    padding-inline-start: 0;
+}
 .todo-bold {
     font-weight: bold;
 }
 .todo-red {
     color: red;
+}
+.todo-todo {
+    display: block;
+    width: 15em;
+    border: solid 2px darkorange;
+    margin: 1em;
+    padding: 1em;
+    box-shadow: 5px 5px 0 0 black;
 }

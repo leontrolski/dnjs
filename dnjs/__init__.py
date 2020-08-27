@@ -26,19 +26,12 @@ def get_named_export(path: Union[Path, str], name: str) -> interpreter.Value:
     return module.exports[name]
 
 
-TEMPLATE_CACHE: Dict[Tuple[str, float], interpreter.Function] = {}
-
 def render(path: Union[Path, str], *values: interpreter.Value, prettify: bool = True) -> str:
     if not isinstance(path, Path):
         path = Path(path)
 
-    cache_key = str(path), path.stat().st_mtime
-    values = html.make_value_js_friendly(values)
-
-    f = TEMPLATE_CACHE.get(cache_key)
-    if f is None:
-        f = get_default_export(path)
-        assert isinstance(f, interpreter.Function)
-        TEMPLATE_CACHE[cache_key] = f
-
-    return html.to_html(f(*values), prettify=prettify)
+    values = tuple(html.make_value_js_friendly(v) for v in values)
+    f = get_default_export(path)
+    assert isinstance(f, interpreter.Function)
+    html_tree = f(*values)
+    return html.to_html(html.make_value_js_friendly(html_tree), prettify=prettify)

@@ -1,5 +1,5 @@
 #!/bin/bash
 cd "$(dirname "$0")/.."
 
-echo '/* Generated from style.dn.js */' > static/style.css
-dnjs static/style.dn.js --css >> static/style.css
+echo '/* Generated from shared/style.dn.js */' > static/style.css
+dnjs shared/style.dn.js --css >> static/style.css

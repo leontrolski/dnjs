@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import partial
 import math
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 from . import builtins, parser
 
@@ -48,8 +48,15 @@ class MakeFunction:
         return self.f(*args)
 
 
+CACHE: Dict[Tuple[str, float], Module] = {}
+
+
 def interpret(path: Path) -> Module:
-    ast = parser.parse(path.read_text())
+    cache_key = str(path.resolve()), path.stat().st_mtime
+    ast = CACHE.get(cache_key)
+    if ast is None:
+        ast = parser.parse(path.read_text())
+        CACHE[cache_key] = ast
 
     module = Module(path=path, scope={}, exports={}, default_export=missing, value=missing)
     for node in ast.values:
@@ -195,7 +202,8 @@ def function_handler(scope: Scope, value: parser.Function) -> Value:
 def function_call_handler(scope: Scope, value: parser.FunctionCall) -> Value:
     function = get(scope, value.var)
     values = get(scope, value.values)
-    assert isinstance(function, Function) or isinstance(function, MakeFunction)
+    if not (isinstance(function, Function) or isinstance(function, MakeFunction)):
+        raise ValueError(f"{function} is not of type Function")
     return function(*values)
 
 

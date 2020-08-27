@@ -27,13 +27,21 @@ SPACE_PATTERN = re.compile(r'^(\s*)', re.MULTILINE)
 
 
 def make_value_js_friendly(value: interpreter.Value) -> interpreter.Value:
+    if value is None or isinstance(value, (float, int, bool, str, builtins.TrustedHtml)):
+        return value
     if isinstance(value, dict):
         return {k: make_value_js_friendly(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [make_value_js_friendly(n) for n in value]
+    # we turn functions into null
+    if isinstance(value, interpreter.Function):
+        return None
     if is_dataclass(value):
         return make_value_js_friendly(asdict(value))
-    return value
+    # handle pydantic without importing it
+    if hasattr(value, "dict") and callable(value.dict):
+        return make_value_js_friendly(value.dict())
+    raise RuntimeError(f"unable to make type jsonable {type(value)}")
 
 
 def to_html(value: interpreter.Value, prettify: bool=True) -> str:

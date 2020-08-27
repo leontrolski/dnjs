@@ -18,11 +18,13 @@ to the evaluated dnjs if it is a function.
 """)
 @click.argument('filename', type=click.Path(exists=True))
 @click.option('--html', is_flag=True, help='Post process m(...) nodes to <html>.')
+@click.option('--compact', is_flag=True, help="Don't prettify <html>.")
 @click.option('--css', is_flag=True, help='Post process css')
 @click.option('--name', help='Pick an exported variable to return as opposed to the default.')
 @click.argument('args', nargs=-1, type=click.File('r'))
+@click.option('--raw', is_flag=True, help='Print value as literal.')
 @click.option('--pdb', is_flag=True, help='Drop into the debugger on failure.')
-def main(filename, html, css, name, args, pdb):
+def main(filename, html, compact, css, name, args, raw, pdb):
     try:
         if name:
             value = get_named_export(filename, name)
@@ -42,9 +44,11 @@ def main(filename, html, css, name, args, pdb):
             value = value(*json_args)
 
         if html:
-            print(dnjs_html.to_html(value))
+            print(dnjs_html.to_html(value, prettify=not compact))
         elif css:
             print(dnjs_css.to_css(value))
+        elif raw:
+            print(value)
         else:
             print(json.dumps(value))
     except:

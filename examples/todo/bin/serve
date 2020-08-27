@@ -3,6 +3,6 @@ cd "$(dirname "$0")/../.."
 
 # install requirements with:
 #
-#     pip install dnjs fastapi uvicorn aiofiles
+#     pip install dnjs fastapi uvicorn aiofiles python-multipart
 #
 uvicorn todo.app:app --reload

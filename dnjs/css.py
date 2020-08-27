@@ -6,7 +6,7 @@ def to_css(value: interpreter.Value, prettify: bool=True) -> str:
     lines = []
     for k, v in value.items():
         assert isinstance(v, dict)
-        values = ",".join(f"    {attr}: {value};" for attr, value in v.items())
+        values = "\n".join(f"    {attr}: {value};" for attr, value in v.items())
         line = f"{k} {{\n{values}\n}}"
         lines.append(line)
     return "\n".join(lines)
