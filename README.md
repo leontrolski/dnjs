@@ -197,7 +197,7 @@ Originally the name stood for DOM Notation JavaScript.
 These functions return `JSON`-able data:
 
 ```python
-from djns import get_default_export, get_named_export
+from dnjs import get_default_export, get_named_export
 
 get_default_export(path)
 get_named_export(path, name)
@@ -206,7 +206,7 @@ get_named_export(path, name)
 This function returns html as a `str`:
 
 ```python
-from djns import render
+from dnjs import render
 
 render(path, *values)
 ```
