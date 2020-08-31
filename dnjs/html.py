@@ -77,7 +77,7 @@ def to_html(value: interpreter.Value, prettify: bool=True) -> str:
             raise RuntimeError(f"unable to convert type {type(v)}")
 
     is_self_closing = tag in SELF_CLOSING and not children
-    html_str = f"<{escape(tag)} {attrs_str}>"
+    html_str = f"<{escape(tag)}{attrs_str}>"
     if not is_self_closing:
         html_str += ''.join(to_html(c, prettify=prettify) for c in children)
         html_str += f"</{escape(tag)}>"
