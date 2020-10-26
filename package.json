@@ -21,7 +21,7 @@
     "@types/mithril": "^2.0.3",
     "dedent": "^0.7.0",
     "html": "^1.0.0",
-    "mithril": "git+https://github.com/leontrolski/mithril.js.git#try-set-global",
+    "mithril": "git+https://github.com/isiahmeadows/mithril.js.git#bugfix",
     "mithril-node-render": "^3.0.0",
     "mocha": "^8.0.1",
     "typescript": "^3.9.7"

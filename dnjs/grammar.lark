@@ -5,7 +5,7 @@ dnjs            : statement* [value _NEWLINE]
                 | export_default
                 | assignment
 
-?unambigious    : string
+?unambiguous    : string
                 | SIGNED_NUMBER -> number
                 | "true"        -> true
                 | "false"       -> false
@@ -13,26 +13,24 @@ dnjs            : statement* [value _NEWLINE]
                 | list
                 | template
                 | ternary_eq
-                | function_call
-                | "(" value ")"
+                | bracketed
                 | var
                 | dot
+                | function_call
 
-?value          : unambigious
-                | dict
-                | function
+?value          : unambiguous | dict | function
 
 var             : CNAME
-dot             : unambigious "." var
+dot             : unambiguous "." var
 rest_var        : "..." value
+?bracketed      : "(" value ")"
 pair            : (string | CNAME) ":" value
 ?dict_item      : pair  | rest_var
 ?list_item      : value | rest_var
 dict            : "{" [dict_item ("," dict_item)*] [","] "}"
 list            : "[" [list_item ("," list_item)*] [","] "]"
-ternary_eq      : value "===" value "?" value ":" value
+ternary_eq      : unambiguous "===" value "?" value ":" value
 dict_destruct   : "{" [var ("," var)*] [","] "}"
-list_destruct   : "[" [var ("," var)*] [","] "]"
 template_string : /(?:`|}).*?(?:`|\${)/ms
 template        : template_string (value template_string)*
 
@@ -40,12 +38,12 @@ import_         : "import" (var | dict_destruct) "from" string _NEWLINE
 export          : "export" assignment
 export_default  : "export" "default" value _NEWLINE
 assignment      : "const" var "=" value _NEWLINE
-function        : "(" [(var | list_destruct) ("," var)*] [","] ")" "=>" unambigious
-function_call   : unambigious "(" [value ("," value)*] [","] ")"
+function        : (var | ("(" [(var | list) ("," var)*] [","] ")")) "=>" unambiguous
+function_call   : unambiguous "(" [value ("," value)*] [","] ")"
 
 string          : ESCAPED_STRING
-_NEWLINE        : NEWLINE
 COMMENT         : "//" /.*/
+_NEWLINE        : NEWLINE
 
 %import common.LETTER
 %import common.DIGIT

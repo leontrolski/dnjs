@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import functools
 import re
 import textwrap
 from typing import Any, List, Tuple
@@ -55,6 +56,11 @@ def map(value: List["interpreter.Value"], f: "interpreter.Function") -> list:
         else:
             out.append(f(v, i))
     return out
+
+
+def reduce_(value: List["interpreter.Value"], f: "interpreter.Function", initializer: Any) -> Any:
+    assert isinstance(f, interpreter.Function)
+    return functools.reduce(f, value, initializer)
 
 
 def includes(value: List["interpreter.Value"], v: "interpreter.Value") -> bool:

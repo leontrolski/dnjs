@@ -14,8 +14,7 @@ describe('#indexOf()', () => {
             <div class="to-fold hidden"></div>
             <h3><a href="#foo">You &amp; I</a></h3>
             <form id="my-form" class="members_by_member_ids">
-                <input name="member_ids" placeholder="hello: M-00-0000-0001" class="my-input">
-            </form>
+                <input name="member_ids" placeholder="hello: M-00-0000-0001" class="my-input">no escape: &</form>
         </div>`
         const ctx = {
             route_args: [],

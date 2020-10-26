@@ -10,7 +10,7 @@ def parse_requirements(filename):
 
 setuptools.setup(
     name="dnjs",
-    version="0.0.9",
+    version="0.0.11",
     author="Leon Trolski",
     author_email="ojhrussell@gmail.com",
     description="DOM Notation JS",

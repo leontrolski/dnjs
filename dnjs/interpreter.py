@@ -35,7 +35,7 @@ class Function:
     first_arg_is_destructure: bool = False
 
     def __call__(self, *args: Value):
-        assert len(self.arg_names) == len(args)
+        # assert len(self.arg_names) == len(args)
         scope_with_args = {**self.scope, **dict(zip(self.arg_names, args))}
         return get(scope_with_args, self.return_value)
 
@@ -166,8 +166,10 @@ def dot_handler(scope: Scope, value: parser.Dot) -> Value:
             return MakeFunction(partial(builtins.map, left))
         if name == "filter":
             return MakeFunction(partial(builtins.filter_, left))
+        if name == "reduce":
+            return MakeFunction(partial(builtins.reduce_, left))
         if name == "includes":
-            return MakeFunction(partial(builtins.includes, left))
+            return MakeFunction(partial(builtins.includes_, left))
 
     if left is _m:
         if name == "trust":
@@ -185,9 +187,10 @@ def dot_handler(scope: Scope, value: parser.Dot) -> Value:
 def function_handler(scope: Scope, value: parser.Function) -> Value:
     arg_names = []
     first = next(iter(value.args), None)
-    first_arg_is_destructure = isinstance(first, parser.ListDestruct)
+    first_arg_is_destructure = isinstance(first, list)
     if first_arg_is_destructure:
-        for var in first.vars:
+        for var in first:
+            assert isinstance(var, parser.Var)
             arg_names.append(var.name)
     for var in value.args[1:] if first_arg_is_destructure else value.args:
         arg_names.append(var.name)

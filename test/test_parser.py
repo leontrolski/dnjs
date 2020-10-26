@@ -8,7 +8,6 @@ from dnjs.parser import (
     Var,
     RestVar,
     DictDestruct,
-    ListDestruct,
     Dot,
     Assignment,
     ExportDefault,
@@ -21,6 +20,9 @@ from dnjs.parser import (
     DictMap,
     Template,
 )
+
+def p(s: str) -> str:
+    return [l.strip() for l in s.splitlines() if l.strip()]
 
 
 def test_parser_empty():
@@ -48,7 +50,7 @@ def test_parser_json():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    assert actual.splitlines() == expected.splitlines()
+    assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs([{"key": ["item0", "item1", 3.14, True, '\"baz\"']}])
@@ -78,7 +80,7 @@ def test_parser_add_comments():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    assert actual.splitlines() == expected.splitlines()
+    assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs([{"key": ["item0", "not//a//comment", 3.14, True]}])
@@ -118,7 +120,7 @@ def test_parser_add_imports():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    assert actual.splitlines() == expected.splitlines()
+    assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs(
@@ -163,7 +165,7 @@ def test_parser_add_assignments_reference_and_rest():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    assert actual.splitlines() == expected.splitlines()
+    assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs(
@@ -215,7 +217,7 @@ def test_parser_add_export():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    assert actual.splitlines() == expected.splitlines()
+    assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs(
@@ -272,7 +274,7 @@ def test_parser_add_top_level_functions():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    assert actual.splitlines() == expected.splitlines()
+    assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs(
@@ -323,7 +325,7 @@ def test_parser_add_ternary():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    assert actual.splitlines() == expected.splitlines()
+    assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs(
@@ -389,7 +391,7 @@ def test_parser_add_map_and_filter():
                                 var	bar
                         var	map
                     function
-                        list_destruct
+                        list
                             var	k
                             var	v
                         var	i
@@ -412,7 +414,7 @@ def test_parser_add_map_and_filter():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    assert actual.splitlines() == expected.splitlines()
+    assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs(
@@ -457,7 +459,7 @@ def test_parser_add_map_and_filter():
                     values=[
                         Function(
                             args=[
-                                ListDestruct(vars=[Var(name="k"), Var(name="v")]),
+                                [Var(name="k"), Var(name="v")],
                                 Var(name="i"),
                             ],
                             return_value=Var(name="v"),
@@ -517,7 +519,7 @@ def test_parser_add_nodes():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    assert actual.splitlines() == expected.splitlines()
+    assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs(
@@ -558,7 +560,7 @@ def test_parser_add_template():
     )
     tree = pre_parse(text)
     actual = tree.pretty(indent_str="    ")
-    # assert actual.splitlines() == expected.splitlines()
+    # assert p(actual) == p(expected)
 
     actual = parse(text)
     expected = Dnjs(

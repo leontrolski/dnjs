@@ -3,11 +3,17 @@ import json
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
-from lark import Lark, Transformer
+from lark import Lark, Transformer, visitors
 
+
+# Just being able to parse the grammar with lalr should ensure
+# that there are no ambiguities. For some reason, it ain't
+# playing well with newlines though...
+with open(Path(__file__).parent / "grammar.lark") as f:
+    grammar = Lark(f.read(), start="dnjs", parser="lalr")
 
 with open(Path(__file__).parent / "grammar.lark") as f:
-    grammar = Lark(f.read(), start="dnjs", ambiguity="explicit")
+    grammar = Lark(f.read(), start="dnjs")
 
 
 @dataclass
@@ -32,6 +38,10 @@ def dict_handler(_, values: List[Any]) -> dict:
     return dict(values)
 
 
+def discard(_, tokens) -> None:
+    raise visitors.Discard
+
+
 def string_handler(_, tokens) -> str:
     [s] = tokens
     return json.loads(s)
@@ -40,6 +50,7 @@ def string_handler(_, tokens) -> str:
 def number_handler(_, tokens) -> Union[float, int]:
     [n] = tokens
     return json.loads(n)
+
 
 
 Value = Union[dict, list, str, float, int, bool, None, Var, RestVar]  # not sure this is true
@@ -53,11 +64,6 @@ class Dot(_Split):
 
 @dataclass
 class DictDestruct:
-    vars: List[Var]
-
-
-@dataclass
-class ListDestruct:
     vars: List[Var]
 
 
@@ -162,7 +168,6 @@ class TreeToJson(Transformer):
     rest_var = RestVar.from_tokens
     dot = Dot.from_tokens
     dict_destruct = DictDestruct
-    list_destruct = ListDestruct
     import_ = Import.from_tokens
     assignment = Assignment.from_tokens
     export_default = ExportDefault.from_tokens
@@ -173,6 +178,8 @@ class TreeToJson(Transformer):
     template_string = template_string
     template = Template
     CNAME = str
+    NEWLINE = discard
+    END = discard
     string = string_handler
     number = number_handler
     list = list

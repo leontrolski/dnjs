@@ -167,6 +167,53 @@ to:
 }
 ```
 
+### As a `jq` replacement
+
+```bash
+JSON='[{foo: 1, bar: "one"}, {foo: 2, bar: "two"}]'
+echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])'
+```
+
+```js
+[["one", 1], ["two", 2]]
+```
+
+#### csv
+
+```bash
+echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])'  --csv
+```
+
+```
+"one",1
+"two",2
+```
+
+#### csv, raw
+
+```bash
+echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])'  --csv --raw
+```
+
+```
+one,1
+two,2
+```
+
+#### jsonl
+
+(While `dnjs` is implemented in python, this is very slow).
+
+```bash
+JSON='{foo: 1, bar: "one"}\n{foo: 2, bar: "two"}'
+echo $JSON | while read l; do echo $l | dnjs - -p 'a=>a.bar' --raw; done
+```
+
+```
+one
+two
+```
+
 ## How exactly does `dnjs` extend `JSON`?
 
 Remember `dnjs` is a **restriction** of `JavaScript`, the aim is not to implement all of it, any more than `JSON` is.
@@ -179,9 +226,9 @@ Here are all the extensions to `JSON`, the grammar can be found [here](dnjs/gram
 - `import { c } from "./b.dn.js"`, `import b from "./b.dn.js"`. Non-local imports are simply ignored (so as to allow importing `m` as anything).
 - `export default a`, `export const b = c`.
 - `dict`s and `list`s can be splatted with rest syntax: `{...a}`/`[...a]`.
-- Functions can be defined with `const f = (a, b) => c` syntax.
+- Functions can be defined with `const f = (a, b) => c` syntax. Brackets are not required for one argument, functions are called with the number of arguments provided.
 - Ternary expressions, _only_ in the form `a === b ? c : d`. Equality should be implemented however `JavaScript` does.
-- Map, filter, map over dict, dict from entries, in the form `a.map((v, i) => b)`, `a.filter((v, i) => b)`, `Object.entries(a).map(([k, v], i) => b)`, `Object.fromEntries(a)`.
+- Map, filter, reduce, map over dict, dict from entries, in the form `a.map((v, i) => b)`, `a.filter((v, i) => b)`, `a.reduce((x, y) => [...x, ...y], [])`, `Object.entries(a).map(([k, v], i) => b)`, `Object.fromEntries(a)`.
 - Hyperscript, somewhat compatible with [mithril](https://mithril.js.org/) - `m("sometag#some-id.some-class.other-class", {"href": "foo.js", "class": ["another-class"]}, children)`, this evaluates to `dict`s like `{"tag": "sometag", "attrs": {"id": "some-id", className: "some-class other-class another-class", "href": "foo.js", "children": children}`. `m.trust(a)` to not escape html.
 - Multiline templates in the form `` `foo ${a}` ``, `` dedent(`foo ${a}`) ``. `dedent` should work the same as [this npm package](https://www.npmjs.com/package/dedent).
 - Lists have `.length`, `.includes(a)` attributes.
