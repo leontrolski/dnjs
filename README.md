@@ -181,7 +181,7 @@ echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])'
 #### csv
 
 ```bash
-echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])'  --csv
+echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])' --csv
 ```
 
 ```
@@ -192,7 +192,7 @@ echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])'  --csv
 #### csv, raw
 
 ```bash
-echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])'  --csv --raw
+echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])' --csv --raw
 ```
 
 ```
@@ -212,6 +212,14 @@ echo $JSON | while read l; do echo $l | dnjs - -p 'a=>a.bar' --raw; done
 ```
 one
 two
+```
+
+#### Flattening
+
+Remember, you can flatten arrays with:
+
+```js
+.reduce((a, b)=>[...a, ...b], [])
 ```
 
 ## How exactly does `dnjs` extend `JSON`?
