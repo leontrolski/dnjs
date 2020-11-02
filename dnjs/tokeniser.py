@@ -11,6 +11,7 @@ t = namedtuple("TokenConstructor", ["name", "s"])
 EMPTYFILE = t("EMPTYFILE", "")
 EOF = t("EOF", "")
 UNEXPECTED = lambda v: t("UNEXPECTED", v)
+NEWLINE = t("NEWLINE", "\n")
 
 # keyword
 IMPORT = t("IMPORT", "import")
@@ -57,7 +58,7 @@ VAR.name = "VAR"
 STRING.name = "STRING"
 TEMPLATE.name = "TEMPLATE"
 
-ws = set(" \t\f\r\n")
+ws = set(" \t\f\r")  # note no \n
 number_begin = set("-" + string.digits)
 number_all = set("." + string.digits)
 var_begin = set("_" + string.ascii_letters)
@@ -100,6 +101,7 @@ class SafeEOF(str):
 @dataclass
 class Reader:
     # use as an iterator, everything else is private really
+    # should never raise an error, only return UNEXPECTED tokens
 
     s: str
     filepath: Optional[str] = None
@@ -116,7 +118,6 @@ class Reader:
         self.linepos += 1
 
     def incline(self) -> None:
-        self.pos += 1
         self.linepos = 0
         self.lineno += 1
 
@@ -124,24 +125,22 @@ class Reader:
     def this(self) -> str:
         return self.s[self.pos]
 
+    @property
+    def at_comment(self):
+        return (self.this or "") + (self.s[self.pos + 1] or "") == comment
+
     def next(self) -> str:
         this = self.this
         self.inc()
         return this
 
     def skip(self):
-        # comments
-        if (self.this or "") + (self.s[self.pos + 1] or "") == comment:
-            self.inc()
-            self.inc()
-            while self.this != newline:
+        while self.this in ws or self.at_comment:
+            if self.at_comment:
                 self.inc()
-            self.incline()
-
-        # whitespace
-        while self.this in ws:
-            if self.this == newline:
-                self.incline()
+                self.inc()
+                while self.this != newline:
+                    self.inc()
             else:
                 self.inc()
 
@@ -158,6 +157,10 @@ class Reader:
 
         if token_str is None:
             return make(*EOF)
+
+        if token_str == NEWLINE.s:
+            self.incline()
+            return make(*NEWLINE)
 
         if token_str == quote:
             while True:
@@ -221,9 +224,6 @@ class Reader:
 
         return make(*UNEXPECTED(token_str))
 
-    def __iter__(self) -> Iterator[Token]:
-        return self
-
     def __next__(self) -> Token:
         try:
             peek = self.read()
@@ -237,4 +237,5 @@ class Reader:
             raise StopIteration
         return peek
 
-
+    def __iter__(self) -> Iterator[Token]:
+        return self

@@ -2,8 +2,9 @@ from  textwrap import dedent
 from dnjs import tokeniser as t
 import pytest
 
-def l(s: str):
-    return [(token.name, token.s) for token in t.Reader(s)]
+def l(s: str, strip_final_newline: bool = True):
+    tokens = [(token.name, token.s) for token in t.Reader(s)]
+    return tokens[:-1] if strip_final_newline else tokens
 
 def test_empty():
     assert l(" ") == []
@@ -38,8 +39,8 @@ def test_string():
     assert l('"foo"') == [t.STRING('"foo"')]
     assert l(r'"foo\"bar"') == [t.STRING(r'"foo\"bar"')]
     assert l(r'"foo\\" 42') == [t.STRING(r'"foo\\"'), t.NUMBER("42")]
-    assert l('42"foo') == [t.NUMBER("42"), t.UNEXPECTED('"foo\n')]
-    assert l('"foo\nbar"') == [t.UNEXPECTED('"foo\n'), t.VAR('bar'), t.UNEXPECTED('"\n')]
+    assert l('42"foo', strip_final_newline=False) == [t.NUMBER("42"), t.UNEXPECTED('"foo\n')]
+    assert l('"foo\nbar"', strip_final_newline=False) == [t.UNEXPECTED('"foo\n'), t.VAR('bar'), t.UNEXPECTED('"\n')]
 
 
 def test_template():
@@ -64,21 +65,55 @@ def test_line_numbers():
     reader = t.Reader("123  67")
     assert next(reader) == t.Token(*t.NUMBER("123"), 0, 1, 0)
     assert next(reader) == t.Token(*t.NUMBER("67"), 5, 1, 5)
+    assert next(reader).name == t.NEWLINE.name
     with pytest.raises(StopIteration):
         next(reader)
 
     reader = t.Reader("1\n34\n678\n")
     assert next(reader) == t.Token(*t.NUMBER("1"), 0, 1, 0)
+    assert next(reader).name == t.NEWLINE.name
     assert next(reader) == t.Token(*t.NUMBER("34"), 2, 2, 0)
+    assert next(reader).name == t.NEWLINE.name
     assert next(reader) == t.Token(*t.NUMBER("678"), 5, 3, 0)
+    assert next(reader).name == t.NEWLINE.name
     with pytest.raises(StopIteration):
         next(reader)
 
     reader = t.Reader("123//67\n9\n")
     assert next(reader) == t.Token(*t.NUMBER("123"), 0, 1, 0)
+    assert next(reader).name == t.NEWLINE.name
     assert next(reader) == t.Token(*t.NUMBER("9"), 8, 2, 0)
+    assert next(reader).name == t.NEWLINE.name
     with pytest.raises(StopIteration):
         next(reader)
 
 def test_combined():
     assert l(".12.6") == [t.DOT, t.NUMBER("12.6")]
+
+
+def test_comments():
+    text = '''{
+        "key": ["item0", "not//a//comment", 3.14, true]  // another {} comment
+        // a comment
+        //
+    }'''
+    expected = [
+        ('BRACEL', '{'),
+        ('NEWLINE', '\n'),
+        ('STRING', '"key"'),
+        ('COLON', ':'),
+        ('BRACKL', '['),
+        ('STRING', '"item0"'),
+        ('COMMA', ','),
+        ('STRING', '"not//a//comment"'),
+        ('COMMA', ','),
+        ('NUMBER', '3.14'),
+        ('COMMA', ','),
+        ('TRUE', 'true'),
+        ('BRACKR', ']'),
+        ('NEWLINE', '\n'),
+        ('NEWLINE', '\n'),
+        ('NEWLINE', '\n'),
+        ('BRACER', '}'),
+    ]
+    assert l(text) == expected

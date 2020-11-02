@@ -6,21 +6,21 @@ from dnjs.parser2 import (
     parse,
     Dnjs,
     ParserError,
-    # Import,
-    # Var,
-    # RestVar,
-    # DictDestruct,
-    # Dot,
-    # Assignment,
-    # ExportDefault,
-    # Export,
-    # Function,
-    # FunctionCall,
+    Import,
+    Var,
+    RestVar,
+    DictDestruct,
+    Dot,
+    Assignment,
+    ExportDefault,
+    Export,
+    Function,
+    FunctionCall,
     # TernaryEq,
     # Map,
     # Filter,
     # DictMap,
-    # Template,
+    Template,
 )
 
 # def p(s: str) -> str:
@@ -39,7 +39,7 @@ def test_unknown_token():
         parse('"foo')
     assert str(e.value) == dedent("""
         <ParserError line:1>
-        Not sure how to deal with token: "foo
+        Not sure how to deal with UNEXPECTED token: "foo
 
         "foo
         ^
@@ -50,255 +50,180 @@ def test_parse_atoms():
     assert parse('"foo"') == Dnjs(["foo"])
     assert parse('"foo"\n"bar"') == Dnjs(["foo", "bar"])
     assert parse('"foo\\nbär"') == Dnjs(["foo\nbär"])
+    assert parse('23') == Dnjs([23])
+    assert parse('-34.8') == Dnjs([-34.8])
+    assert parse('true') == Dnjs([True])
+    assert parse('false') == Dnjs([False])
+    assert parse('null') == Dnjs([None])
+
+def test_parse_array():
+    assert parse('[]') == Dnjs([[]])
+    text = '[1, 2, null]'
+    assert parse(text) == Dnjs([[1, 2, None]])
+    text = '[1, [2], null]'
+    assert parse(text) == Dnjs([[1, [2], None]])
+    text = '[1, 2, [3, [4, 5]], null]'
+    assert parse(text) == Dnjs([[1, 2, [3, [4, 5]], None]])
+    with pytest.raises(ParserError) as e:
+        parse('[1,,]')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        Array, didn't expect a comma here
+        [1,,]
+           ^
+    """).strip()
+    with pytest.raises(ParserError) as e:
+        parse('[1 2]')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        Array, expected a comma here
+        [1 2]
+           ^
+    """).strip()
+
+def test_parse_object():
+    assert parse('{}') == Dnjs([{}])
+    text = '{"foo": 2}'
+    assert parse(text) == Dnjs([{"foo": 2}])
+    text = '{foo: 2}'
+    assert parse(text) == Dnjs([{"foo": 2}])
+    text = '{foo: [1, {"bar": 3}],}'
+    assert parse(text) == Dnjs([{"foo": [1, {"bar": 3}]}])
+    with pytest.raises(ParserError) as e:
+        parse('{foo}')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        Object's key needs a value
+        {foo}
+            ^
+    """).strip()
+    with pytest.raises(ParserError) as e:
+        parse('{foo, "are"}')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        Object, expected a colon here
+        {foo, "are"}
+            ^
+    """).strip()
+    with pytest.raises(ParserError) as e:
+        parse('{foo:1, 2: 3}')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        Object, expected a string here
+        {foo:1, 2: 3}
+                ^
+    """).strip()
+    # TODO: complete error coverage
 
 
-def test_parser_json():
-    text = '''{"key": ["item0", "item1", 3.14, true, "\\"baz\\""]}'''
-#     expected = dedent(
-#         """\
-#         dnjs
-#             dict
-#                 pair
-#                     string	"key"
-#                     list
-#                         string	"item0"
-#                         string	"item1"
-#                         number	3.14
-#                         true
-#                         string	"\\"baz\\""
-#     """
-#     )
-#     tree = pre_parse(text)
-#     actual = tree.pretty(indent_str="    ")
-#     assert p(actual) == p(expected)
-
-#     actual = parse(text)
-#     expected = Dnjs([{"key": ["item0", "item1", 3.14, True, '\"baz\"']}])
-#     assert actual == expected
+def test_parser_add_comments():
+    text = """\
+        {
+            "key": ["item0", "not//a//comment", 3.14, true]  // another {} comment
+            // a comment
+            //
+        }
+    """
+    actual = parse(text)
+    expected = Dnjs([{"key": ["item0", "not//a//comment", 3.14, True]}])
+    assert actual == expected
 
 
-# def test_parser_add_comments():
-#     text = """\
-#         {
-#             "key": ["item0", "not//a//comment", 3.14, true]  // another {} comment
-#             // a comment
-#             //
-#         }
-#     """
-#     expected = dedent(
-#         """\
-#         dnjs
-#             dict
-#                 pair
-#                     string	"key"
-#                     list
-#                         string	"item0"
-#                         string	"not//a//comment"
-#                         number	3.14
-#                         true
-#     """
-#     )
-#     tree = pre_parse(text)
-#     actual = tree.pretty(indent_str="    ")
-#     assert p(actual) == p(expected)
+def test_parser_add_imports():
+    text = """\
+        import m from "mithril"
 
-#     actual = parse(text)
-#     expected = Dnjs([{"key": ["item0", "not//a//comment", 3.14, True]}])
-#     assert actual == expected
+        import { base, form } from "./base.dn.js"
+
+        {
+            key: ["item0", "item1", 3.14, true],
+        }
+    """
+    actual = parse(text)
+    expected = Dnjs(
+        [
+            Import(Var("m"), "mithril"),
+            Import(DictDestruct([Var(name="base"), Var(name="form")]), "./base.dn.js"),
+            {"key": ["item0", "item1", 3.14, True]},
+        ]
+    )
+    assert actual == expected
 
 
-# def test_parser_add_imports():
-#     text = """\
-#         import m from "mithril"
-
-#         import { base, form } from "./base.dn.js"
-
-#         {
-#             key: ["item0", "item1", 3.14, true],
-#         }
-#     """
-#     expected = dedent(
-#         """\
-#         dnjs
-#             import_
-#                 var	m
-#                 string	"mithril"
-#             import_
-#                 dict_destruct
-#                     var	base
-#                     var	form
-#                 string	"./base.dn.js"
-#             dict
-#                 pair
-#                     key
-#                     list
-#                         string	"item0"
-#                         string	"item1"
-#                         number	3.14
-#                         true
-#     """
-#     )
-#     tree = pre_parse(text)
-#     actual = tree.pretty(indent_str="    ")
-#     assert p(actual) == p(expected)
-
-#     actual = parse(text)
-#     expected = Dnjs(
-#         [
-#             Import(Var("m"), "mithril"),
-#             Import(DictDestruct([Var(name="base"), Var(name="form")]), "./base.dn.js"),
-#             {"key": ["item0", "item1", 3.14, True]},
-#         ]
-#     )
-#     assert actual == expected
+def test_parser_add_assignments_reference_and_rest():
+    text = """
+        const foo = 45
+        const bar = {}
+        {"key": ["item0", "item1", 3.14, ...foo, true, bar], ...foo, baz: 12}
+    """
+    actual = parse(text)
+    expected = Dnjs(
+        [
+            Assignment(var=Var(name="foo"), value=45),
+            Assignment(var=Var(name="bar"), value={}),
+            {
+                "key": [
+                    "item0",
+                    "item1",
+                    3.14,
+                    RestVar(var=Var(name="foo")),
+                    True,
+                    Var(name="bar"),
+                ],
+                RestVar(var=Var(name="foo")): None,
+                "baz": 12,
+            },
+        ]
+    )
+    assert actual == expected
 
 
-# def test_parser_add_assignments_reference_and_rest():
-#     text = """
-#         const foo = 45
-#         const bar = {}
-#         {"key": ["item0", "item1", 3.14, ...foo, true, bar], ...foo}
-#     """
-#     expected = dedent(
-#         """\
-#             dnjs
-#                 assignment
-#                     var	foo
-#                     number	45
-#                 assignment
-#                     var	bar
-#                     dict
-#                 dict
-#                     pair
-#                         string	"key"
-#                         list
-#                             string	"item0"
-#                             string	"item1"
-#                             number	3.14
-#                             rest_var
-#                                 var	foo
-#                             true
-#                             var	bar
-#                     rest_var
-#                         var	foo
-#     """
-#     )
-#     tree = pre_parse(text)
-#     actual = tree.pretty(indent_str="    ")
-#     assert p(actual) == p(expected)
+def test_parser_add_export():
+    text = """
+        export default [6]
+        export const base = 42
 
-#     actual = parse(text)
-#     expected = Dnjs(
-#         [
-#             Assignment(var=Var(name="foo"), value=45),
-#             Assignment(var=Var(name="bar"), value={}),
-#             {
-#                 RestVar(var=Var(name="foo")): None,
-#                 "key": [
-#                     "item0",
-#                     "item1",
-#                     3.14,
-#                     RestVar(var=Var(name="foo")),
-#                     True,
-#                     Var(name="bar"),
-#                 ],
-#             },
-#         ]
-#     )
-#     assert actual == expected
+        {"key": ["item0", "item1", 3.14, true]}
+    """
+    actual = parse(text)
+    expected = Dnjs(
+        [
+            ExportDefault([6.0]),
+            Export(Assignment(var=Var(name="base"), value=42.0)),
+            {"key": ["item0", "item1", 3.14, True]},
+        ]
+    )
+    assert actual == expected
 
-
-# def test_parser_add_export():
-#     text = """
-#         export default [6]
-#         export const base = 42
-
-#         {"key": ["item0", "item1", 3.14, true]}
-#     """
-#     expected = dedent(
-#         """\
-#         dnjs
-#             export_default
-#                 list
-#                     number	6
-#             export
-#                 assignment
-#                     var	base
-#                     number	42
-#             dict
-#                 pair
-#                     string	"key"
-#                     list
-#                         string	"item0"
-#                         string	"item1"
-#                         number	3.14
-#                         true
-#     """
-#     )
-#     tree = pre_parse(text)
-#     actual = tree.pretty(indent_str="    ")
-#     assert p(actual) == p(expected)
-
-#     actual = parse(text)
-#     expected = Dnjs(
-#         [
-#             ExportDefault([6.0]),
-#             Export(Assignment(var=Var(name="base"), value=42.0)),
-#             {"key": ["item0", "item1", 3.14, True]},
-#         ]
-#     )
-#     assert actual == expected
+def test_parser_add_dot():
+    text = """
+        const foo = {bar: 42}
+        foo.bar
+        foo.bar.qux
+    """
+    actual = parse(text)
+    expected = Dnjs(
+        [
+            Assignment(var=Var(name="foo"), value={"bar": 42}),
+            Dot(left=Var(name="foo"), right="bar"),
+            Dot(left=Dot(left=Var(name="foo"), right="bar"), right="qux"),
+        ]
+    )
+    assert actual == expected
 
 
 # def test_parser_add_top_level_functions():
 #     text = """
+#         const a = (1)
 #         const f = () => 42
 #         export default (a) => a
 #         export const otherF = (a, b, c) => ({"foo": [1]})
 #         const foo = [f(), otherF(a, b, c)]
 #     """
-#     expected = dedent(
-#         """\
-#         dnjs
-#             assignment
-#                 var	f
-#                 function
-#                     number	42
-#             export_default
-#                 function
-#                     var	a
-#                     var	a
-#             export
-#                 assignment
-#                     var	otherF
-#                     function
-#                         var	a
-#                         var	b
-#                         var	c
-#                         dict
-#                             pair
-#                                 string	"foo"
-#                                 list
-#                                     number	1
-#             assignment
-#                 var	foo
-#                 list
-#                     function_call
-#                         var	f
-#                     function_call
-#                         var	otherF
-#                         var	a
-#                         var	b
-#                         var	c
-#     """
-#     )
-#     tree = pre_parse(text)
-#     actual = tree.pretty(indent_str="    ")
-#     assert p(actual) == p(expected)
-
 #     actual = parse(text)
 #     expected = Dnjs(
 #         [
+#             Assignment(var=Var(name="a"), value=1),
 #             Assignment(var=Var(name="f"), value=Function(args=[], return_value=42)),
 #             ExportDefault(
 #                 value=Function(args=[Var(name="a")], return_value=Var(name="a"))

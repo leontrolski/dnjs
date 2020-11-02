@@ -169,7 +169,7 @@ def dot_handler(scope: Scope, value: parser.Dot) -> Value:
         if name == "reduce":
             return MakeFunction(partial(builtins.reduce_, left))
         if name == "includes":
-            return MakeFunction(partial(builtins.includes_, left))
+            return MakeFunction(partial(builtins.includes, left))
 
     if left is _m:
         if name == "trust":
