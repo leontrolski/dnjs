@@ -12,7 +12,6 @@ click==7.1.2              # via -r -, black, pip-tools
 colorful==0.5.4           # via prettyprinter
 icdiff==1.9.1             # via -r -
 importlib-metadata==1.7.0  # via pluggy, pytest
-lark-parser==0.9.0        # via -r -
 more-itertools==8.4.0     # via pytest
 packaging==20.4           # via pytest
 pathspec==0.8.0           # via black

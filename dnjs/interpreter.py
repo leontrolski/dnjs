@@ -55,7 +55,7 @@ def interpret(path: Path) -> Module:
     cache_key = str(path.resolve()), path.stat().st_mtime
     ast = CACHE.get(cache_key)
     if ast is None:
-        ast = parser.parse(path.read_text())
+        ast = parser.parse(path.read_text(), str(path))
         CACHE[cache_key] = ast
 
     module = Module(path=path, scope={}, exports={}, default_export=missing, value=missing)
@@ -108,8 +108,10 @@ def get(scope: Scope, value: Value) -> Value:
         return function_handler(scope, value)
     if isinstance(value, parser.FunctionCall):
         return function_call_handler(scope, value)
-    if isinstance(value, parser.TernaryEq):
-        return ternary_eq_handler(scope, value)
+    if isinstance(value, parser.Eq):
+        return eq_handler(scope, value)
+    if isinstance(value, parser.Ternary):
+        return ternary_handler(scope, value)
     if isinstance(value, parser.Template):
         return template_handler(scope, value)
     else:
@@ -157,31 +159,30 @@ def var_handler(scope: Scope, value: parser.Var) -> Value:
 
 def dot_handler(scope: Scope, value: parser.Dot) -> Value:
     left = get(scope, value.left)
-    name = value.right.name
 
     if isinstance(left, list):
-        if name == "length":
+        if value.right == "length":
             return builtins.length(left)
-        if name == "map":
+        if value.right == "map":
             return MakeFunction(partial(builtins.map, left))
-        if name == "filter":
+        if value.right == "filter":
             return MakeFunction(partial(builtins.filter_, left))
-        if name == "reduce":
+        if value.right == "reduce":
             return MakeFunction(partial(builtins.reduce_, left))
-        if name == "includes":
+        if value.right == "includes":
             return MakeFunction(partial(builtins.includes, left))
 
     if left is _m:
-        if name == "trust":
+        if value.right == "trust":
             return MakeFunction(builtins.m_dot_trust)
 
     if left is builtins.Object:
-        if name == "fromEntries":
+        if value.right == "fromEntries":
             return MakeFunction(builtins.from_entries)
-        if name == "entries":
+        if value.right == "entries":
             return MakeFunction(builtins.entries)
 
-    return left[name]
+    return left[value.right]
 
 
 def function_handler(scope: Scope, value: parser.Function) -> Value:
@@ -210,14 +211,17 @@ def function_call_handler(scope: Scope, value: parser.FunctionCall) -> Value:
     return function(*values)
 
 
-def ternary_eq_handler(scope: Scope, value: parser.TernaryEq) -> Value:
+def eq_handler(scope: Scope, value: parser.Eq) -> Value:
     left = get(scope, value.left)
     right = get(scope, value.right)
-    if_equal = get(scope, value.if_equal)
-    if_not_equal = get(scope, value.if_not_equal)
-    if isinstance(left, (float, int)) and isinstance(right, (float, int)):
-        return if_equal if math.isclose(left, right) else if_not_equal
-    return if_equal if left == right else if_not_equal
+    return builtins.equal(left, right)
+
+
+def ternary_handler(scope: Scope, value: parser.Ternary) -> Value:
+    predicate = get(scope, value.predicate)
+    if_true = get(scope, value.if_true)
+    if_not_true = get(scope, value.if_not_true)
+    return if_true if predicate else if_not_true
 
 
 def template_handler(scope: Scope, value: parser.Template) -> Value:

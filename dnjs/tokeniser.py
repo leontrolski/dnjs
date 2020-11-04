@@ -179,7 +179,8 @@ class Reader:
 
         if token_str == backtick or (token_str == bracer and self.template_depth):
             dollar, brace = dollarbrace
-            self.template_depth += 1
+            if token_str == backtick:
+                self.template_depth += 1
             while True:
                 char = self.this
                 if char == esc:
@@ -194,6 +195,9 @@ class Reader:
                     self.template_depth -= 1
                     gobble()
                     return make(*TEMPLATE(token_str))
+                elif char == newline:
+                    self.incline()
+                    gobble()
                 else:
                     gobble()
 

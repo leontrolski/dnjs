@@ -226,7 +226,7 @@ Remember, you can flatten arrays with:
 
 Remember `dnjs` is a **restriction** of `JavaScript`, the aim is not to implement all of it, any more than `JSON` is.
 
-Here are all the extensions to `JSON`, the grammar can be found [here](dnjs/grammar.lark).
+Here are all the extensions to `JSON`:
 
 - Comments with `//`.
 - Optional trailing commas.
@@ -319,10 +319,8 @@ npm test
   - Common string functions like upper case, replace etc?
   - `parseInt` etc..
 - Standalone (in `c`/`rust`/`go`? with `Python` bindings) to JSON program.
-- Name things in the grammar, catch `lark` exceptions and make custom user ones.
 - Write JS library that simply wraps mithril render and has a `dnjs.isValid(path)` function that uses the grammar (doing this may involve removing some `lark`-specific bits in the grammar.
 - Typescript support?
-- Consider what prevents `dnjs` from becoming a data interchange format - eg. infinite recursion. `--safe` mode should probably have no functions and no imports.
+- Consider what prevents `dnjs` from becoming a data interchange format - eg. infinite recursion. `--safe` mode? Specify PATHs that it's permitted to import from.
 - Allow importing JSON using Experimental JSON modules](https://nodejs.org/api/esm.html#esm_experimental_json_modules).
 - Remove accidental non-js compatability - eg. template grammar is a bit wacky.
-- Handle _ambig

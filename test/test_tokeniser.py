@@ -1,4 +1,5 @@
-from  textwrap import dedent
+from pathlib import Path
+from textwrap import dedent
 from dnjs import tokeniser as t
 import pytest
 
@@ -59,36 +60,53 @@ def test_template():
     assert l(r'`foo${a[`inner`]}bar`') == expected
     assert l('`foo\nbar`') == [t.TEMPLATE('`foo\nbar`')]
 
-
 def test_line_numbers():
     # note that at the end of iteration, the reader's pos is 1 char ahead of the end
-    reader = t.Reader("123  67")
-    assert next(reader) == t.Token(*t.NUMBER("123"), 0, 1, 0)
-    assert next(reader) == t.Token(*t.NUMBER("67"), 5, 1, 5)
+    reader = t.Reader("012  56")
+    assert next(reader) == t.Token(*t.NUMBER("012"), 0, 1, 0)
+    assert next(reader) == t.Token(*t.NUMBER("56"), 5, 1, 5)
     assert next(reader).name == t.NEWLINE.name
     with pytest.raises(StopIteration):
         next(reader)
 
-    reader = t.Reader("1\n34\n678\n")
-    assert next(reader) == t.Token(*t.NUMBER("1"), 0, 1, 0)
+    reader = t.Reader("0\n23\n567\n")
+    assert next(reader) == t.Token(*t.NUMBER("0"), 0, 1, 0)
     assert next(reader).name == t.NEWLINE.name
-    assert next(reader) == t.Token(*t.NUMBER("34"), 2, 2, 0)
+    assert next(reader) == t.Token(*t.NUMBER("23"), 2, 2, 0)
     assert next(reader).name == t.NEWLINE.name
-    assert next(reader) == t.Token(*t.NUMBER("678"), 5, 3, 0)
+    assert next(reader) == t.Token(*t.NUMBER("567"), 5, 3, 0)
     assert next(reader).name == t.NEWLINE.name
     with pytest.raises(StopIteration):
         next(reader)
 
-    reader = t.Reader("123//67\n9\n")
-    assert next(reader) == t.Token(*t.NUMBER("123"), 0, 1, 0)
+    reader = t.Reader("012//56\n8\n")
+    assert next(reader) == t.Token(*t.NUMBER("012"), 0, 1, 0)
     assert next(reader).name == t.NEWLINE.name
-    assert next(reader) == t.Token(*t.NUMBER("9"), 8, 2, 0)
+    assert next(reader) == t.Token(*t.NUMBER("8"), 8, 2, 0)
+    assert next(reader).name == t.NEWLINE.name
+    with pytest.raises(StopIteration):
+        next(reader)
+
+    reader = t.Reader("0\n`3\n5`\n8")
+    assert next(reader) == t.Token(*t.NUMBER("0"), 0, 1, 0)
+    assert next(reader).name == t.NEWLINE.name
+    assert next(reader)  == t.Token(*t.TEMPLATE("`3\n5`"), 2, 2, 0)
+    assert next(reader).name == t.NEWLINE.name
+    assert next(reader) == t.Token(*t.NUMBER("8"), 8, 4, 0)
     assert next(reader).name == t.NEWLINE.name
     with pytest.raises(StopIteration):
         next(reader)
 
 def test_combined():
     assert l(".12.6") == [t.DOT, t.NUMBER("12.6")]
+
+
+def test_escaping():
+    text = (Path(__file__).parent / "data/escaping.dn.js").read_text()
+    assert l(text) == [t.STRING('"\\"baz\\""')] == [t.STRING(text[:-1])]
+
+    text = (Path(__file__).parent / "data/template.dn.js").read_text()
+    assert l(text)[-1] == t.BRACER
 
 
 def test_comments():

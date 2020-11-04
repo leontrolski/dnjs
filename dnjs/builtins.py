@@ -1,10 +1,20 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 import functools
+import math
 import re
 import textwrap
 from typing import Any, List, Tuple
 
 from . import interpreter
+
+
+# TODO: make this exactly like js
+def equal(left: interpreter.Value, right: interpreter.Value) -> bool:
+    if isinstance(left, (float, int)) and isinstance(right, (float, int)):
+        return math.isclose(left, right)
+    return left == right
 
 
 # Object.methods
@@ -19,7 +29,7 @@ def entries(v: dict) -> list:
     return [list(n) for n in v.items()]
 
 
-def from_entries(v: List[Tuple[str, "interpreter.Value"]]) -> dict:
+def from_entries(v: List[Tuple[str, interpreter.Value]]) -> dict:
     assert isinstance(v, list)
     return dict(v)
 
@@ -27,12 +37,12 @@ def from_entries(v: List[Tuple[str, "interpreter.Value"]]) -> dict:
 # List.methods
 
 
-def length(v: List["interpreter.Value"]) -> int:
+def length(v: List[interpreter.Value]) -> int:
     assert isinstance(v, list)
     return len(v)
 
 
-def filter_(value: List["interpreter.Value"], f: "interpreter.Function") -> list:
+def filter_(value: List[interpreter.Value], f: "interpreter.Function") -> list:
     assert isinstance(f, interpreter.Function)
     out = []
     for i, v in enumerate(value):
@@ -46,7 +56,7 @@ def filter_(value: List["interpreter.Value"], f: "interpreter.Function") -> list
     return out
 
 
-def map(value: List["interpreter.Value"], f: "interpreter.Function") -> list:
+def map(value: List[interpreter.Value], f: "interpreter.Function") -> list:
     assert isinstance(f, interpreter.Function)
     out = []
     for i, v in enumerate(value):
@@ -58,12 +68,12 @@ def map(value: List["interpreter.Value"], f: "interpreter.Function") -> list:
     return out
 
 
-def reduce_(value: List["interpreter.Value"], f: "interpreter.Function", initializer: Any) -> Any:
+def reduce_(value: List[interpreter.Value], f: "interpreter.Function", initializer: Any) -> Any:
     assert isinstance(f, interpreter.Function)
     return functools.reduce(f, value, initializer)
 
 
-def includes(value: List["interpreter.Value"], v: "interpreter.Value") -> bool:
+def includes(value: List[interpreter.Value], v: interpreter.Value) -> bool:
     return v in value
 
 
@@ -79,12 +89,12 @@ class TrustedHtml:
     string: str
 
 
-def m_dot_trust(value: "interpreter.Value") -> TrustedHtml:
+def m_dot_trust(value: interpreter.Value) -> TrustedHtml:
     assert isinstance(value, str)
     return TrustedHtml(value)
 
 
-def m(properties: str, *args: List["interpreter.Value"]) -> "interpreter.Value":
+def m(properties: str, *args: List[interpreter.Value]) -> interpreter.Value:
     out = {"tag": "div", "attrs": {"className": ""}, "children": []}
 
     assert isinstance(properties, str)
