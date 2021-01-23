@@ -12,7 +12,13 @@ class Missing:
         return "<missing>"
 
 
+class Undefined:
+    def __repr__(self):
+        return "undefined"
+
+
 missing = Missing()
+undefined = Undefined()
 Value = Union[dict, list, str, float, int, bool, None]
 Func = Callable[..., Value]
 Scope = Dict[str, Value]
@@ -182,7 +188,10 @@ def dot_handler(scope: Scope, value: parser.Dot) -> Value:
         if value.right == "entries":
             return MakeFunction(builtins.entries)
 
-    return left[value.right]
+    if isinstance(left, str):
+        return undefined
+
+    return left.get(value.right, undefined)
 
 
 def function_handler(scope: Scope, value: parser.Function) -> Value:
@@ -219,9 +228,7 @@ def eq_handler(scope: Scope, value: parser.Eq) -> Value:
 
 def ternary_handler(scope: Scope, value: parser.Ternary) -> Value:
     predicate = get(scope, value.predicate)
-    if_true = get(scope, value.if_true)
-    if_not_true = get(scope, value.if_not_true)
-    return if_true if predicate else if_not_true
+    return get(scope, value.if_true) if predicate else get(scope, value.if_not_true)
 
 
 def template_handler(scope: Scope, value: parser.Template) -> Value:
