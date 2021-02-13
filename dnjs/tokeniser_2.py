@@ -94,7 +94,11 @@ class TokenStream:
 
     @property
     def _char(self) -> str:
-        return self.source[self._pos]
+        char = self.source[self._pos]
+        if char is None:
+            raise _UnexpectedEOF(make(unexpected, token_str))
+        return char
+
 
     @property
     def _at_comment(self):
