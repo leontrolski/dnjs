@@ -24,7 +24,7 @@ keyword = "keyword"  # import from export default const
 name = "name"
 punctuation = "punctuation"  # = => ( ) { } [ ] , : . ... ? ===
 literal = "literal"  # null true false str int float
-template = "template"  # ` ${ }
+template = "template"
 
 _whitespace = set(" \t\f\r")  # note no \n
 _number_begin = set("-" + string.digits)
@@ -43,6 +43,10 @@ for p in _punctuation_values:
         tree = tree[character]
 
 
+class TokenStreamEmptyError(RuntimeError):
+    pass
+
+
 @dataclass
 class TokenStream:
     # should never raise an error, only return "unexpected" tokens
@@ -55,27 +59,27 @@ class TokenStream:
     _linepos: int = 0
     _template_depth: int = 0
     _iter: Iterator[Token] = iter([])
+    _is_complete: bool = False
 
     def advance(self, include_newlines: bool = False) -> Token:
-        while True:
-            token = next(self._iter)
-            if not include_newlines and token.type == newline:
-                continue
-            return token
+        if self._is_complete:
+            raise TokenStreamEmptyError
+        if self.current.type == eof:
+            self._is_complete = True
+            return self.current
+
+        token = self.current
+        try:
+            current = self._read()
+            while not include_newlines and current.type == newline:
+                current = self._read()
+        except IndexError as e:
+            current = Token(eof, eof, pos=self._pos, lineno=self._lineno, linepos=self._linepos)
+        self.current = current
+        return token
 
     def __post_init__(self):
         self.source = self.source.rstrip() + "\n"  # always end on one "\n"
-
-        def _iter():
-            while True:
-                yield self.current
-                try:
-                    self.current = self._read()
-                except IndexError as e:
-                    break
-            yield Token(eof, eof, pos=self._pos, lineno=self._lineno, linepos=self._linepos)
-
-        self._iter = _iter()
         self.advance()
 
     def _read(self) -> Token:
@@ -89,6 +93,11 @@ class TokenStream:
         def inc_line() -> None:
             self._linepos = 0
             self._lineno += 1
+
+        def gobble():
+            before = char()
+            inc()
+            return before
 
         def at_comment() -> bool:
             if self._pos >= len(self.source) - 1:
@@ -106,85 +115,79 @@ class TokenStream:
                 inc()
 
         make = partial(Token, pos=self._pos, lineno=self._lineno, linepos=self._linepos)
-
-        token_str = char()
+        t = char()
         inc()
 
-        def gobble():
-            nonlocal token_str
-            token_str += char()
-            inc()
-
-        if token_str == "\n":
+        if t == "\n":
             inc_line()
             return make(newline, "\n")
 
-        if token_str == '"':
+        if t == '"':
             while True:
-                c = char()
-                if c == "\n":
-                    gobble()
-                    return make(unexpected, token_str)
-                elif c == "\\":
-                    gobble()
-                    gobble()
-                elif c == '"':
-                    gobble()
-                    return make(literal, token_str)
+                this_char = char()
+                if this_char == "\n":
+                    t += gobble()
+                    return make(unexpected, t)
+                elif this_char == "\\":
+                    t += gobble()
+                    t += gobble()
+                elif this_char == '"':
+                    t += gobble()
+                    return make(literal, t)
                 else:
-                    gobble()
+                    t += gobble()
 
-        if token_str == "`" or (token_str == "}" and self._template_depth):
-            if token_str == "`":
+        if t == "`" or (t == "}" and self._template_depth):
+            if t == "`":
                 self._template_depth += 1
             while True:
-                c = char()
-                if c == "\\":
-                    gobble()
-                    gobble()
-                elif c == "$":
-                    gobble()
+                this_char = char()
+                if this_char == "\\":
+                    t += gobble()
+                    t += gobble()
+                elif this_char == "$":
+                    t += gobble()
                     if char() == "{":
-                        gobble()
-                        return make(template, token_str)
-                elif c == "`":
+                        t += gobble()
+                        return make(template, t)
+                elif this_char == "`":
                     self._template_depth -= 1
-                    gobble()
-                    return make(template, token_str)
-                elif c == "\n":
+                    t += gobble()
+                    return make(template, t)
+                elif this_char == "\n":
                     inc_line()
-                    gobble()
+                    t += gobble()
                 else:
-                    gobble()
+                    t += gobble()
 
-        if token_str in _punctuation_tree:
-            tree = _punctuation_tree[token_str]
+        if t in _punctuation_tree:
+            tree = _punctuation_tree[t]
             while char() in tree:
-                gobble()
-            if token_str not in _punctuation_values:
-                return make(unexpected, token_str)
-            return make(punctuation, token_str)
+                t += gobble()
+            if t not in _punctuation_values:
+                return make(unexpected, t)
+            return make(punctuation, t)
 
-        if token_str in _number_begin:
+        if t in _number_begin:
             seen_decimal_point = False
             while char() in _number_all:
                 digit = char()
                 inc()
                 if digit == ".":
                     if seen_decimal_point:
-                        token_str += digit
-                        return make(unexpected, token_str)
+                        t += digit
+                        return make(unexpected, t)
                     seen_decimal_point= True
-                token_str += digit
-            return make(literal, token_str)
+                t += digit
+            return make(literal, t)
 
-        if token_str in _name_begin:
+        if t in _name_begin:
             while char() in _name_all:
-                gobble()
-            if token_str in _keyword_values:
-                return make(keyword, token_str)
-            if token_str in _literal_values:
-                return make(literal, token_str)
-            return make(name, token_str)
+                t += gobble()
+            if t in _keyword_values:
+                return make(keyword, t)
+            if t in _literal_values:
+                return make(literal, t)
+            return make(name, t)
 
-        return make(unexpected, token_str)
+        return make(unexpected, t)

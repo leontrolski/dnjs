@@ -98,11 +98,6 @@ def eat(token_stream: TokenStream, token_type: str) -> None:
     next(token_stream)
 
 
-def skip_newlines(token_stream: TokenStream) -> None:
-    while token_stream.current.type == newline:
-        next(token_stream)
-
-
 def parse(rule_map: RuleMap, token_stream: TokenStream, rbp: int = 0) -> Node:
     """
     parse to the right, eating tokens until we encounter a token with binding

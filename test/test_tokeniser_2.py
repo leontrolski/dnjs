@@ -21,6 +21,7 @@ def test_unexpected():
     assert l("±") == [(t.unexpected, "±")]
 
 def test_number():
+    assert l("1") == [(t.literal, "1")]
     assert l(" -1.5 ") == [(t.literal, "-1.5")]
     assert l(" -1..5 ") == [(t.unexpected, "-1.."), (t.literal, "5")]
 
@@ -72,7 +73,7 @@ def test_line_numbers():
     assert reader.advance(include_newlines=True) == t.Token(*(t.literal, "56"), 5, 1, 5)
     assert reader.advance(include_newlines=True).type == t.newline
     assert reader.advance(include_newlines=True).type == t.eof
-    with pytest.raises(StopIteration):
+    with pytest.raises(t.TokenStreamEmptyError):
         reader.advance().type
 
     reader = t.TokenStream("0\n23\n567\n")
@@ -106,7 +107,7 @@ def test_line_numbers_no_newlines():
     assert reader.advance() == t.Token(*(t.literal, "012"), 0, 1, 0)
     assert reader.advance() == t.Token(*(t.literal, "56"), 5, 1, 5)
     assert reader.advance().type == t.eof
-    with pytest.raises(StopIteration):
+    with pytest.raises(t.TokenStreamEmptyError):
         reader.advance().type
 
     reader = t.TokenStream("0\n23\n567\n")
