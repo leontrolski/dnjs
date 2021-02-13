@@ -7,9 +7,8 @@ def l(s: str, include_newlines: bool = False):
     vs = []
     token_stream = t.TokenStream(s)
     while True:
-        try:
-            token = token_stream.advance(include_newlines=include_newlines)
-        except StopIteration:
+        token = token_stream.advance(include_newlines=include_newlines)
+        if token.type == t.eof:
             break
         vs.append((token.type, token.value))
     return vs
@@ -72,8 +71,9 @@ def test_line_numbers():
     assert reader.advance(include_newlines=True) == t.Token(*(t.literal, "012"), 0, 1, 0)
     assert reader.advance(include_newlines=True) == t.Token(*(t.literal, "56"), 5, 1, 5)
     assert reader.advance(include_newlines=True).type == t.newline
+    assert reader.advance(include_newlines=True).type == t.eof
     with pytest.raises(StopIteration):
-        reader.advance(include_newlines=True).type
+        reader.advance().type
 
     reader = t.TokenStream("0\n23\n567\n")
     assert reader.advance(include_newlines=True) == t.Token(*(t.literal, "0"), 0, 1, 0)
@@ -82,16 +82,14 @@ def test_line_numbers():
     assert reader.advance(include_newlines=True).type == t.newline
     assert reader.advance(include_newlines=True) == t.Token(*(t.literal, "567"), 5, 3, 0)
     assert reader.advance(include_newlines=True).type == t.newline
-    with pytest.raises(StopIteration):
-        reader.advance(include_newlines=True).type
+    assert reader.advance(include_newlines=True).type == t.eof
 
     reader = t.TokenStream("012//56\n8\n")
     assert reader.advance(include_newlines=True) == t.Token(*(t.literal, "012"), 0, 1, 0)
     assert reader.advance(include_newlines=True).type == t.newline
     assert reader.advance(include_newlines=True) == t.Token(*(t.literal, "8"), 8, 2, 0)
     assert reader.advance(include_newlines=True).type == t.newline
-    with pytest.raises(StopIteration):
-        reader.advance().type
+    assert reader.advance(include_newlines=True).type == t.eof
 
     reader = t.TokenStream("0\n`3\n5`\n8")
     assert reader.advance(include_newlines=True) == t.Token(*(t.literal, "0"), 0, 1, 0)
@@ -100,13 +98,14 @@ def test_line_numbers():
     assert reader.advance(include_newlines=True).type == t.newline
     assert reader.advance(include_newlines=True) == t.Token(*(t.literal, "8"), 8, 4, 0)
     assert reader.advance(include_newlines=True).type == t.newline
-    with pytest.raises(StopIteration):
-        reader.advance(include_newlines=True).type
+    assert reader.advance(include_newlines=True).type == t.eof
+
 
 def test_line_numbers_no_newlines():
     reader = t.TokenStream("012  56")
     assert reader.advance() == t.Token(*(t.literal, "012"), 0, 1, 0)
     assert reader.advance() == t.Token(*(t.literal, "56"), 5, 1, 5)
+    assert reader.advance().type == t.eof
     with pytest.raises(StopIteration):
         reader.advance().type
 
@@ -114,21 +113,18 @@ def test_line_numbers_no_newlines():
     assert reader.advance() == t.Token(*(t.literal, "0"), 0, 1, 0)
     assert reader.advance() == t.Token(*(t.literal, "23"), 2, 2, 0)
     assert reader.advance() == t.Token(*(t.literal, "567"), 5, 3, 0)
-    with pytest.raises(StopIteration):
-        reader.advance().type
+    assert reader.advance().type == t.eof
 
     reader = t.TokenStream("012//56\n8\n")
     assert reader.advance() == t.Token(*(t.literal, "012"), 0, 1, 0)
     assert reader.advance() == t.Token(*(t.literal, "8"), 8, 2, 0)
-    with pytest.raises(StopIteration):
-        reader.advance().type
+    assert reader.advance().type == t.eof
 
     reader = t.TokenStream("0\n`3\n5`\n8")
     assert reader.advance() == t.Token(*(t.literal, "0"), 0, 1, 0)
     assert reader.advance()  == t.Token(*(t.template, "`3\n5`"), 2, 2, 0)
     assert reader.advance() == t.Token(*(t.literal, "8"), 8, 4, 0)
-    with pytest.raises(StopIteration):
-        reader.advance().type
+    assert reader.advance().type == t.eof
 
 def test_combined():
     assert l(".12.6") == [(t.punctuation, "."), (t.literal, "12.6")]

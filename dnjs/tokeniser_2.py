@@ -13,6 +13,8 @@ class Token:
     lineno: int
     linepos: int
 
+# you should never see this
+_void_token = Token(type="VOID", value="VOID", pos=0, lineno=0, linepos=0)
 
 # token types
 eof = "eof"
@@ -42,35 +44,17 @@ for p in _punctuation_values:
 
 
 @dataclass
-class _UnexpectedEOF(RuntimeError):
-    token: Token
-
-
-class _SafeEOF(str):
-    def __getitem__(self, n) -> Optional[str]:
-        try:
-            return super().__getitem__(n)
-        except IndexError as e:
-            return None
-
-
-@dataclass
 class TokenStream:
-    # should never raise an error, only return UNEXPECTED tokens
+    # should never raise an error, only return "unexpected" tokens
     source: str
     filepath: Optional[str] = None
+    current: Token = _void_token
+
     _pos: int = 0
     _lineno: int = 1
     _linepos: int = 0
     _template_depth: int = 0
     _iter: Iterator[Token] = iter([])
-    current: Token = Token(
-        type="MISSING",
-        value="MISSING",
-        pos=-1,
-        lineno=-1,
-        linepos=-1,
-    )
 
     def advance(self, include_newlines: bool = False) -> Token:
         while True:
@@ -80,100 +64,102 @@ class TokenStream:
             return token
 
     def __post_init__(self):
-        self.source = _SafeEOF(self.source.rstrip() + "\n")  # always end on a "\n"
-        self._iter = self._make_iter()
+        self.source = self.source.rstrip() + "\n"  # always end on one "\n"
+
+        def _iter():
+            while True:
+                yield self.current
+                try:
+                    self.current = self._read()
+                except IndexError as e:
+                    break
+            yield Token(eof, eof, pos=self._pos, lineno=self._lineno, linepos=self._linepos)
+
+        self._iter = _iter()
         self.advance()
 
-    def _inc(self) -> None:
-        self._pos += 1
-        self._linepos += 1
-
-    def _incline(self) -> None:
-        self._linepos = 0
-        self._lineno += 1
-
-    @property
-    def _char(self) -> str:
-        char = self.source[self._pos]
-        if char is None:
-            raise _UnexpectedEOF(make(unexpected, token_str))
-        return char
-
-
-    @property
-    def _at_comment(self):
-        return (self._char or "") + (self.source[self._pos + 1] or "") == "//"
-
     def _read(self) -> Token:
-        while self._char in _whitespace or self._at_comment:
-            if self._at_comment:
-                self._inc()
-                self._inc()
-                while self._char != "\n":
-                    self._inc()
+        def char() -> str:
+            return self.source[self._pos]
+
+        def inc() -> None:
+            self._pos += 1
+            self._linepos += 1
+
+        def inc_line() -> None:
+            self._linepos = 0
+            self._lineno += 1
+
+        def at_comment() -> bool:
+            if self._pos >= len(self.source) - 1:
+                return False
+            return self.source[self._pos] + self.source[self._pos + 1] == "//"
+
+        # eat up whitespace and comments
+        while char() in _whitespace or at_comment():
+            if at_comment():
+                inc()
+                inc()
+                while char() != "\n":
+                    inc()
             else:
-                self._inc()
+                inc()
 
         make = partial(Token, pos=self._pos, lineno=self._lineno, linepos=self._linepos)
-        token_str = self._char
-        self._inc()
+
+        token_str = char()
+        inc()
 
         def gobble():
             nonlocal token_str
-            if self._char is None:
-                raise _UnexpectedEOF(make(unexpected, token_str))
-            token_str += self._char
-            self._inc()
-
-        if token_str is None:
-            return make(eof, eof)
+            token_str += char()
+            inc()
 
         if token_str == "\n":
-            self._incline()
+            inc_line()
             return make(newline, "\n")
 
         if token_str == '"':
             while True:
-                char = self._char
-                if char == "\n":
+                c = char()
+                if c == "\n":
                     gobble()
                     return make(unexpected, token_str)
-                elif char == "\\":
+                elif c == "\\":
                     gobble()
                     gobble()
-                elif char == '"':
+                elif c == '"':
                     gobble()
                     return make(literal, token_str)
                 else:
                     gobble()
 
         if token_str == "`" or (token_str == "}" and self._template_depth):
-            dollar, brace = "${"
             if token_str == "`":
                 self._template_depth += 1
             while True:
-                char = self._char
-                if char == "\\":
+                c = char()
+                if c == "\\":
                     gobble()
                     gobble()
-                elif char == dollar:
+                elif c == "$":
                     gobble()
-                    if self._char == brace:
+                    if char() == "{":
                         gobble()
                         return make(template, token_str)
-                elif char == "`":
+                elif c == "`":
                     self._template_depth -= 1
                     gobble()
                     return make(template, token_str)
-                elif char == "\n":
-                    self._incline()
+                elif c == "\n":
+                    inc_line()
                     gobble()
                 else:
                     gobble()
 
         if token_str in _punctuation_tree:
             tree = _punctuation_tree[token_str]
-            while self._char in tree:
+            while char() in tree:
                 gobble()
             if token_str not in _punctuation_values:
                 return make(unexpected, token_str)
@@ -181,9 +167,9 @@ class TokenStream:
 
         if token_str in _number_begin:
             seen_decimal_point = False
-            while self._char in _number_all:
-                digit = self._char
-                self._inc()
+            while char() in _number_all:
+                digit = char()
+                inc()
                 if digit == ".":
                     if seen_decimal_point:
                         token_str += digit
@@ -193,7 +179,7 @@ class TokenStream:
             return make(literal, token_str)
 
         if token_str in _name_begin:
-            while self._char in _name_all:
+            while char() in _name_all:
                 gobble()
             if token_str in _keyword_values:
                 return make(keyword, token_str)
@@ -202,18 +188,3 @@ class TokenStream:
             return make(name, token_str)
 
         return make(unexpected, token_str)
-
-    def _make_iter(self):
-        while True:
-            before = self.current
-            try:
-                self.current = self._read()
-                if self.current.type == eof:
-                    yield before
-                    break
-                else:
-                    yield before
-            except _UnexpectedEOF as e:
-                self.current = e.token
-                yield before
-                break
