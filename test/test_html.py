@@ -32,35 +32,34 @@ dataclass_ctx = Ctx(
     onClickF=None,
 )
 
-expected = dedent("""\
-    <div id="account-filters">
-        <h3>
-            <button class="fold-button" title="expand">
-                ⇕
-            </button>
-            Filters  🔍
-        </h3>
-        <div class="to-fold hidden">
-        </div>
-        <h3>
-            <a href="#foo">
-                You &amp; I
-            </a>
-        </h3>
-        <form class="members_by_member_ids" id="my-form">
-            <input class="my-input" name="member_ids" placeholder="hello: M-00-0000-0001"/>
-            no escape: &amp;
-        </form>
-    </div>""")
+expected = """<div id="account-filters">
+    <h3>
+        <button class="fold-button" title="expand">
+            ⇕
+        </button>
+        Filters  🔍
+    </h3>
+    <div class="to-fold hidden">
+
+    </div>
+    <h3>
+        <a href="#foo">
+            You &amp; I
+        </a>
+
+    </h3>
+    <form class="members_by_member_ids" id="my-form">
+        <input class="my-input" name="member_ids" placeholder="hello: M-00-0000-0001">
+        no escape: &
+    </form>
+
+</div>
+"""
 
 
 def test_interperet():
     actual = render(data_dir / "account.dn.js", ctx)
     assert actual == expected
-
-def test_interperet_escape():
-    actual = render(data_dir / "account.dn.js", ctx, prettify=False)
-    assert actual == '<div id="account-filters"><h3><button class="fold-button" title="expand">⇕</button>Filters  🔍</h3><div class="to-fold hidden"></div><h3><a href="#foo">You &amp; I</a></h3><form class="members_by_member_ids" id="my-form"><input class="my-input" name="member_ids" placeholder="hello: M-00-0000-0001">no escape: &</form></div>'
 
 def test_interperet_dataclass():
     actual = render(data_dir / "account.dn.js", dataclass_ctx)

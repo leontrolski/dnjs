@@ -1,440 +1,267 @@
 from __future__ import annotations
 
-import codecs
-from dataclasses import dataclass
-import itertools
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from textwrap import dedent
-from typing import Any, Iterator, List, Optional, Tuple, Type, Union
+from typing import Callable, Dict, Iterator, Optional, List, Set, Tuple
 
-from dnjs import tokeniser as t
+import dnjs.tokeniser as t
+
+LOW_PREC, COLON_PREC, HIGH_PREC = 1, 2, 999
+
 
 @dataclass
-class ParserError(RuntimeError):
+class Node:
+    token: t.Token
+    children: List[Node]
+    is_quoted: bool = False
+
+    def __str__(self) -> str:
+        if self.token.type in t.atoms:
+            s_expression = str(self.token.value)
+        else:
+            children = self.children
+            args = " ".join([str(c) for c in children])
+            s_expression =  f"({self.token.type}{' ' if args else ''}{args})"
+        return "'" + s_expression if self.is_quoted else s_expression
+
+
+# prefix, infix, infix_right_assoc get populated further down
+prefix: Dict[str, Tuple[Callable[[t.TokenStream, int], Node], int]] = {}
+infix: Dict[str, Tuple[Callable[[t.TokenStream, int, Node], Node], int]] = {}
+infix_right_assoc: Set[str] = set()
+
+
+def parse(token_stream: t.TokenStream, rbp: int = 0) -> Node:
+    f, _bp = prefix.get(token_stream.current.type, (raise_unexpected_error, HIGH_PREC))
+    node = f(token_stream, _bp)
+    return _parse_infix(token_stream, rbp, node)
+
+
+def _parse_infix(token_stream: t.TokenStream, rbp: int, node: Node) -> Node:
+    f, _lbp = infix.get(token_stream.current.type, (raise_unexpected_error, HIGH_PREC))
+    _rbp = _lbp - 1 if token_stream.current.type in infix_right_assoc else _lbp
+
+    if rbp >= _lbp:
+        return node
+
+    return _parse_infix(token_stream, rbp, f(token_stream, _rbp, node))
+
+
+def parse_statements(token_stream: t.TokenStream) -> Iterator[Node]:
+    while token_stream.current.type != t.eof:
+        node = parse(token_stream)
+        convert_children(Node(replace(t._void_token, type="statement"), [node]))
+        yield node
+        if token_stream.current.type == t.eof:
+            break
+        prev_lineno = max([c.token.lineno for c in _yield_descendants(node)])
+        if token_stream.current.lineno <= prev_lineno:
+            raise ParseError("expected statements to be on separate lines", token_stream.current)
+
+
+def eat(token_stream: t.TokenStream, token_type: str) -> None:
+    """Assert the value of the current token, then move to the next token."""
+    token = token_stream.current
+    if token_type and not token.type == token_type:
+        raise ParseError(f"expected {repr(token_type)} got {repr(token.value)}", token_stream.current)
+    token_stream.advance()
+
+
+def prefix_atom(token_stream: t.TokenStream, bp: int) -> Node:
+    before, _ = token_stream.current, token_stream.advance()
+    return Node(before, [])
+
+
+def prefix_unary(token_stream: t.TokenStream, bp: int) -> Node:
+    before, _ = token_stream.current, token_stream.advance()
+    return Node(before, [parse(token_stream, bp)])
+
+
+def infix_binary(token_stream: t.TokenStream, rbp: int, left: Node) -> Node:
+    """a === b becomes (=== a b)"""
+    before = token_stream.current
+
+    if before.type == "=>":
+        # (a, b) => [1, 2] becomes (=> (* a b) '([ 1 2))
+        # a => [1, 2] becomes (=> (* a) '([ 1 2))
+        if left.token.type == t.name:
+            left = Node(left.token, [left])
+        left.token = replace(left.token, type=t.many)
+
+    if before.type == "(":
+        # in the case of ( as a infix binary operator, eg:
+        # f(1, 2, 3) becomes ($ f (* 1 2 3))
+        before = replace(before, type=t.apply)
+        right = parse(token_stream, rbp)
+        right.token = replace(right.token, type=t.many)
+    else:
+        token_stream.advance()
+        right = parse(token_stream, rbp)
+
+    if before.type == "=>":
+        right.is_quoted = True
+
+    return Node(before, [left, right])
+
+
+def infix_ternary(token_stream: t.TokenStream, rbp: int, left: Node) -> Node:
+    """a > 1 ? x : y becomes (? (> a 1) x y)"""
+    before, _ = token_stream.current, token_stream.advance()
+    true_expr = parse(token_stream, COLON_PREC)
+    eat(token_stream, ":")
+    false_expr = parse(token_stream, rbp)
+    children = [left, true_expr, false_expr]
+    true_expr.is_quoted = True
+    false_expr.is_quoted = True
+    return Node(before, children)
+
+
+def prefix_variadic(token_stream: t.TokenStream, bp: int) -> Node:
+    """{a: 1, ...x} becomes ({ (: a 1) (... x))"""
+    before, _ = token_stream.current, token_stream.advance()
+    end = {"[": "]", "{": "}", "(": ")"}[before.type]
+    children = []
+    while token_stream.current.type != end:
+        child = parse(token_stream, LOW_PREC)
+        children.append(child)
+        if token_stream.current.type != end:
+            eat(token_stream, ",")
+    eat(token_stream, end)
+    return Node(before, children)
+
+
+def prefix_variadic_template(token_stream: t.TokenStream, bp: int) -> Node:
+    """`foo ${a} ${[1, 2]} bar` becomes (` `foo ${ a } ${ ([1 2) } bar`)
+
+    Templates are a bit weird in that Token("`foo ${") appears twice -
+    as the operator and as a piece of template data.
+    """
+    before, _ = token_stream.current, token_stream.advance()
+    children = [Node(replace(before, type=t.template), [])]
+    if not before.value.endswith("`"):
+        while not token_stream.current.value.endswith("`"):
+            children.append(parse(token_stream, bp))
+        children.append(parse(token_stream, bp))
+    return Node(before, children)
+
+
+def raise_unexpected_error(token_stream: t.TokenStream, *_: int) -> Node:
+    raise ParseError("unexpected token", token_stream.current)
+
+
+def raise_prefix_error(token_stream: t.TokenStream, _: int) -> Node:
+    if token_stream.current.type == t.eof:
+        raise ParseError("unexpected end of input", token_stream.current)
+    raise ParseError("can't be used in prefix position", token_stream.current)
+
+
+def raise_infix_error(token_stream: t.TokenStream, _: int, __: Node) -> Node:
+    raise ParseError("can't be used in infix position", token_stream.current)
+
+
+prefix_rules = [
+    (-1, ["=", "=>", ")", "}", "]", ":", t.eof], raise_prefix_error),
+    (-1, [*t.atoms, t.name], prefix_atom),
+    (3, ["...", "import", "const", "export", "default"], prefix_unary),
+    (9, ["`"], prefix_variadic_template),
+    (20, ["[", "{", "("], prefix_variadic),
+]
+infix_rules = [
+    (LOW_PREC, [","], raise_infix_error),
+    (COLON_PREC, [":"], infix_binary),
+    (9, ["from", "="], infix_binary),
+    (10, ["=>"], infix_binary),
+    (11, ["==="], infix_binary),
+    (11, ["?"], infix_ternary),
+    (20, [".", "("], infix_binary),
+]
+# populate infix_right_assoc, prefix, infix
+infix_right_assoc.add("?")
+for bp, token_types, f in prefix_rules:
+    for token_type in token_types:
+        prefix[token_type] = f, bp
+for bp, token_types, f in infix_rules:
+    for token_type in token_types:
+        infix[token_type] = f, bp
+for token_type in infix:
+    if token_type not in prefix:
+        prefix[token_type] = raise_prefix_error, 0
+for token_type in prefix:
+    if token_type not in infix:
+        infix[token_type] = raise_infix_error, 0
+
+
+value = {"(", "===", ".", "=>", "?", "[", "{", "`", t.apply, *t.atoms}
+children_types = {
+    "statement": ({"const", "import", "export", *value}, ),
+    t.name: (),
+    t.literal: (),
+    t.number: (),
+    t.string: (),
+    t.template: (),
+    t.d_name: (),
+    "const": ({"="}, ),
+    "import": ({"from"}, ),
+    "export": ({"default", "const"}, ),
+    "default": (value, ),
+    "...": (value, ),
+    "(": (value, ),
+    "=": ({t.name: t.d_name}, value),
+    "===": (value, value),
+    ".": (value - {"{"}, {t.name: t.d_name}),
+    "from": ({"{": t.d_brace, t.name: t.d_name}, {t.string}),
+    ":": ({t.name: t.d_name, t.string: t.string}, value),
+    t.apply: (value, {t.many}),
+    "=>": ({t.many: t.d_many}, value - {"{"}),
+    "?": (value, value, value),
+    "[": ({"...", *value}, ...),
+    "{": ({":", "..."}, ...),
+    "`": (value, ...),
+    t.many: (value, ...),
+    t.d_brack: ({t.name: t.d_name}, ...),
+    t.d_brace: ({t.name: t.d_name}, ...),
+    t.d_many: ({t.name: t.d_name, "[": t.d_brack}, ...),
+}
+
+def convert_children(node: Node) -> Node:
+    ts = children_types[node.token.type]
+    if ts and ts[-1] is ...:
+        ts = tuple(ts[0] for _ in node.children)
+    assert len(node.children) == len(ts)
+    for child, types in zip(node.children, ts):
+        if child.token.type not in types:
+            raise ParseError(
+                message=f"token is not of type: {' '.join(types)}",
+                token=child.token,
+            )
+        if isinstance(types, dict):
+            child.token.type = types[child.token.type]
+        convert_children(child)
+    return node
+
+
+@dataclass
+class ParseError(Exception):
     message: str
-    reader: t.Reader
     token: t.Token
 
     def __str__(self) -> str:
+        if isinstance(self.token.filepath, Path):
+            source = self.token.filepath.read_text()
+            filepath = self.token.filepath
+        else:
+            source = t.UUID_SOURCE_MAP[self.token.filepath]
+            filepath = "line"
         return dedent(f"""
-            <ParserError {self.reader.filepath or 'line'}:{self.token.lineno}>
+            <ParserError {filepath}:{self.token.lineno}>
             {self.message}
-            {self.reader.s.splitlines()[self.token.lineno - 1]}
-            {" " * self.token.linepos + "^"}
+            {(source + " ").splitlines()[self.token.lineno - 1].rstrip()}
+            {"_" * self.token.linepos + "^"}
         """).strip()
 
 
-class Missing:
-    def __repr__(self) -> str:
-        return "<Missing>"
-
-missing = Missing()
-
-@dataclass
-class _Paren:
-    values: List[Value]
-
-# TODO: remove these frozens
-@dataclass(frozen=True)
-class Var:
-    name: str
-
-@dataclass(frozen=True)
-class RestVar:
-    var: Var  # TODO: could be any Value
-
-@dataclass
-class Dnjs:
-    values: List[Value]
-
-@dataclass(frozen=True)
-class Dot:
-    left: Value
-    right: str
-
-@dataclass
-class DictDestruct:
-    vars: List[Var]
-
-@dataclass
-class Import:
-    var_or_destructure: Union[Var, DictDestruct]
-    path: str
-
-@dataclass
-class Assignment:
-    var: Var
-    value: Value
-
-@dataclass
-class ExportDefault:
-    value: Value
-
-@dataclass
-class Export:
-    assignment: Assignment
-
-@dataclass
-class Function:
-    args: List[Var]
-    return_value: Value
-
-@dataclass
-class FunctionCall:
-    var: Var  # TODO: this should be a value
-    values: List[Value]
-
-@dataclass
-class Eq:
-    left: Value
-    right: Value
-
-@dataclass
-class Ternary:
-    predicate: Value
-    if_true: Value
-    if_not_true: Value
-
-@dataclass
-class Template:
-    values: List[Union[str, Value]]
-
-Number = Union[int, float]
-Value = Union[dict, list, str, Number, bool, None, Var, Template, Function, Dot]
-
-@dataclass
-class Reader:
-    iter_: Iterable[t.Token]
-    s: str
-    filepath: Optional[str]
-    peek: Optional[t.Token] = None
-    prev: Optional[t.Token] = None
-
-    def _next(self) -> t.Token:
-        while True:
-            self.prev = self.peek
-            token = next(self.iter_)
-            if _is(token, t.NEWLINE):
-                continue
-            self.peek = token
-            return token
-
-    def next(self):
-        try:
-            self._next()
-        except StopIteration:
-            self.peek = None
-
-    def throw(self, message: str, token: Optional[token] = None):
-        raise ParserError(message, self, token or self.prev)
-
-    def __repr__(self) -> str:
-        return f"<Reader {self.filepath or 'in-memory'}>"
-
-def parse(text: str, filepath: Optional[str] = None) -> Dnjs:
-    iter_ = t.Reader(s=text, filepath=filepath)
-    reader = Reader(iter_, s=text, filepath=filepath)
-    reader.next()
-    if reader.peek is None:
-        return Dnjs([])
-    return dnjs(reader)
-
-def is_assignable_value(value: Any) -> bool:
-    return value is None or isinstance(value, (list, str, int, float, bool, Var, Template, Var, Dot, FunctionCall, Ternary, dict, Function))
-
-def _is(token: t.Token, *types: t.t) -> bool:
-    return any((token.name == t.name) for t in types)
-
-def is_read(reader: Reader, token: t.t, predicate: bool = True) -> bool:
-    if predicate and _is(reader.peek, token):
-        reader.next()
-        return True
-    return False
-
-def is_not_read(reader: Reader, token: t.t, predicate: bool = True) -> bool:
-    if predicate and not _is(reader.peek, token):
-        reader.next()
-        return True
-    return False
-
-def next_value(reader: Reader, prev_infix_token: Optional[t.Token] = None) -> Tuple[t.Token, Value]:
-    token = reader.peek
-
-    # atoms
-    if is_read(reader, t.STRING):
-        out = string(token)
-    elif is_read(reader, t.NUMBER):
-        out = number(token)
-    elif is_read(reader, t.TRUE):
-        out = True
-    elif is_read(reader, t.FALSE):
-        out = False
-    elif is_read(reader, t.NULL):
-        out = None
-    elif is_read(reader, t.VAR):
-        out = Var(token.s)
-
-    # composite
-    elif is_read(reader, t.ELLIPSIS):
-        out = rest_var(reader)
-    elif is_read(reader, t.PARENL):
-        out = paren(reader)
-    elif is_read(reader, t.BRACKL):
-        out = array(reader)
-    elif is_read(reader, t.BRACEL):
-        out = object_(reader)
-    elif is_read(reader, t.IMPORT):
-        out = import_(reader)
-    elif is_read(reader, t.EXPORT):
-        out = export(reader)
-    elif is_read(reader, t.CONST):
-        out = assignment(reader)
-    elif is_read(reader, t.TEMPLATE):
-        out = template(reader, token)
-    else:
-        raise reader.throw(f"Not sure how to deal with {token.name} token: {token.s}", token)
-
-    if isinstance(out, _Paren) and (reader.peek is None or not _is(reader.peek, t.ARROW)):
-        if len(out.values) != 1:
-            reader.throw("Parentheses may only contain one value")
-        out = out.values[0]
-
-    if get_precedence(reader.peek) < get_precedence(prev_infix_token):
-        return out
-    return infix(reader, reader.peek, out)
-
-def get_precedence(token: Optional[t.Token]) -> int:
-    if token is None:
-        return 0
-    return {
-        t.QUESTION.name: 10,
-        t.EQ.name: 20,
-        t.DOT.name: 30,
-    }.get(token.name, 0)
-
-def infix(reader: Reader, token: t.Token, out: Value) -> Value:
-    token = reader.peek
-    was_infix = True
-    if token is None:
-        return out
-    elif is_read(reader, t.DOT):
-        out = dot(reader, out)
-    elif is_read(reader, t.EQ):
-        out = Eq(left=out, right=next_value(reader, prev_infix_token=token))
-    elif is_read(reader, t.QUESTION):
-        out = ternary(reader, out)
-    elif is_read(reader, t.ARROW):
-        out = function(reader, out)
-    elif is_read(reader, t.PARENL):
-        out = function_call(reader, out)
-    else:
-        was_infix = False
-
-    if was_infix:
-        out = infix(reader, reader.peek, out)
-
-    return out
-
-def dnjs(reader: Reader) -> Dnjs:
-    _dnjs = Dnjs([])
-    while True:
-        value = next_value(reader)
-        _dnjs.values.append(value)
-        if reader.peek is None:
-            break
-        # TODO: check for a newline after each statement
-    return _dnjs
-
-def string(token: t.Token) -> str:
-    end_ = -2 if token.s.endswith(t.dollarbrace) else -1
-    return codecs.escape_decode(bytes(token.s[1:end_], "utf-8"))[0].decode("utf-8")
-
-def number(token: t.Token) -> Number:
-    return float(token.s) if "." in token.s else int(token.s)
-
-def _bracketed(reader: Reader, end: t.t, of_token: Optional[t.t] = None) -> List[Value]:
-    saw_closing = False
-    i = 0
-    l = []
-    while True:
-        if is_read(reader, end):
-            saw_closing = True
-            break
-
-        if is_read(reader, t.COMMA, i % 2 == 0):
-            reader.throw("Didn't expect a comma here")
-        elif is_not_read(reader, t.COMMA, i % 2 == 1):
-            reader.throw("Expected a comma here")
-        elif is_read(reader, t.COMMA):
-            pass
-        else:
-            if is_not_read(reader, of_token, of_token is not None):
-                reader.throw(f"Expected to see variable of type: {of_token.name}")
-            value = next_value(reader)
-            l.append(value)
-        i += 1
-
-    if not saw_closing:
-        reader.throw("Array has no closing bracket")
-
-    return l
-
-def paren(reader: Reader) -> _Paren:
-    return _Paren(_bracketed(reader, t.PARENR))
-
-def array(reader: Reader) -> list:
-    return _bracketed(reader, t.BRACKR)
-
-def object_(reader: Reader) -> dict:
-    saw_closing = False
-    i = 0
-    d = {}
-    current_key = missing
-    while True:
-        if is_read(reader, t.BRACER):
-            saw_closing = True
-            break
-
-        if i % 4 == 0 and not _is(reader.peek, t.STRING, t.VAR, t.ELLIPSIS):
-            reader.next()
-            reader.throw("Object, expected a string here")
-        elif is_not_read(reader, t.COLON, i % 4 == 1):
-            reader.throw("Object, expected a colon here")
-        elif is_read(reader, t.COMMA, i % 4 == 2):
-            reader.throw("Object, didn't expect a comma here")
-        elif is_read(reader, t.COLON, i % 4 == 2):
-            reader.throw("Object, didn't expect a colon here")
-        elif is_not_read(reader, t.COMMA, i % 4 == 3):
-            reader.throw("Object, expected a comma here")
-        elif _is(reader.peek, t.COMMA, t.COLON):
-            reader.next()
-        elif i % 4 == 0:
-            token = reader.peek
-            value = next_value(reader)
-            current_key = value
-            if _is(token, t.VAR):
-                current_key = value.name
-            elif _is(token, t.ELLIPSIS):
-                d[value] = None
-                current_key = missing
-                i += 2  # pretend we saw `: value`
-        elif i % 4 == 2:
-            value = next_value(reader)
-            d[current_key] = value
-            current_key = missing
-        i += 1
-
-    if current_key is not missing:
-        reader.throw("Object's key needs a value")
-    if not saw_closing:
-        reader.throw("Object has no closing brace")
-
-    return d
-
-def rest_var(reader: t.Readern) -> RestVar:
-    value = next_value(reader)
-    return RestVar(value )
-
-def import_(reader: Reader) -> Import:
-    inner_token = reader.peek
-    if is_read(reader, t.VAR):
-        var_or_destructure = Var(inner_token.s)
-    elif is_read(reader, t.BRACEL):
-        vars = _bracketed(reader, t.BRACER, of_token=t.VAR)
-        var_or_destructure = DictDestruct(vars=vars)
-    else:
-        reader.throw("Import, expected a var or {var} here")
-
-    if not is_read(reader, t.FROM):
-        reader.throw("Import, expected from here")
-    inner_token = reader.peek
-    if not is_read(reader, t.STRING):
-        reader.throw('Import, expected a string, eg: "../myFile.dn.js" here')
-
-    return Import(var_or_destructure, string(inner_token))
-
-def export(reader: Reader) -> Union[Export, ExportDefault]:
-    inner_token = reader.peek
-    if is_read(reader, t.DEFAULT):
-        value = next_value(reader)
-        if not is_assignable_value(value):
-            reader.throw("Export, expected a value here")
-        return ExportDefault(value)
-    elif is_read(reader, t.CONST):
-        return Export(assignment(reader))
-    else:
-        reader.throw("Export, expected a default value or const var = value")
-
-def assignment(reader: Reader) -> Assignment:
-    inner_token = reader.peek
-    if not is_read(reader, t.VAR):
-        reader.throw("Assignment, expected var here")
-    var = Var(inner_token.s)
-    if not is_read(reader, t.ASSIGN):
-        reader.throw("Assignment, expected = here")
-    value = next_value(reader)
-    if not is_assignable_value(value):
-        reader.throw("Assignment, expected a value here")
-    return Assignment(var, value)
-
-def template(reader: Reader, token: t.Token) -> Template:
-    saw_closing = False
-    i = 1
-    l = [string(token)]
-
-    if token.s.endswith(t.backtick):
-        return Template(l)
-
-    while True:
-        if is_not_read(reader, t.TEMPLATE, i % 2 == 0):
-            reader.throw("Expected more template here")
-        elif i % 2 == 0:
-            inner_token = reader.peek
-            reader.next()
-            l.append(string(inner_token))
-            if inner_token.s.endswith(t.backtick):
-                saw_closing = True
-                break
-        else:
-            value = next_value(reader)
-            l.append(value)
-        i += 1
-
-    if not saw_closing:
-        reader.throw("Template has no final `")
-
-    return Template(l)
-
-# infix
-
-def dot(reader: Reader, value: Value) -> Dot:
-    inner_token = reader.peek
-    if not is_read(reader, t.VAR):
-        reader.throw("Expected eg: foo.bar here")
-    return Dot(left=value, right=inner_token.s)
-
-def ternary(reader: Reader, value: Value) -> Ternary:
-    if_true = next_value(reader)
-    if not is_read(reader, t.COLON):
-        reader.throw("Expected ternary expression in the form x ? y : z")
-    if_not_true = next_value(reader)
-    return Ternary(predicate=value, if_true=if_true, if_not_true=if_not_true)
-
-def function(reader: Reader, value: Value) -> Function:
-    if not isinstance(value, (Var, _Paren)):
-        reader.throw("Function must be defined with arguments")
-    # TODO: assert the values conform to possible args
-    args = value.values if isinstance(value, _Paren) else [value]
-    if is_read(reader, t.BRACEL):
-        reader.throw("Functions returning literal objects must enclose them in brackets, eg: x => ({a: 1})")
-    return Function(args=args, return_value=next_value(reader))
-
-def function_call(reader: Reader, value: Value) -> FunctionCall:
-    # TODO: currently this supports eg. 1(foo)
-    _paren = paren(reader)
-    return FunctionCall(var=value, values=_paren.values)
-
-# missing restrictions:
-# what about '3 4' (with no newlines) - this should be invalid!
-# Vars on their own
-#
-# Test every failure mode
+def _yield_descendants(node: Node) -> Iterator[Node]:
+    yield node
+    for c in node.children:
+        yield from _yield_descendants(c)

@@ -1,112 +1,125 @@
 from pathlib import Path
 from textwrap import dedent
+from unittest.mock import ANY
+
 from dnjs import tokeniser as t
 import pytest
 
-def l(s: str, strip_final_newline: bool = True):
-    tokens = [(token.name, token.s) for token in t.Reader(s)]
-    return tokens[:-1] if strip_final_newline else tokens
+def l(s: str):
+    vs = []
+    token_stream = t.TokenStream.from_source(source=s)
+    while True:
+        token, _ = token_stream.current, token_stream.advance()
+        if token.type == t.eof:
+            break
+        vs.append((token.type, token.value))
+    return vs
 
 def test_empty():
     assert l(" ") == []
     assert l("") == []
 
 def test_unexpected():
-    assert l("±") == [t.UNEXPECTED("±")]
+    assert l("±") == [(t.unexpected, "±")]
 
 def test_number():
-    assert l(" -1.5 ") == [t.NUMBER("-1.5")]
-    assert l(" -1..5 ") == [t.UNEXPECTED("-1.."), t.NUMBER("5")]
+    assert l("1") == [(t.number, "1")]
+    assert l(" -1.5 ") == [(t.number, "-1.5")]
+    assert l(" -1..5 ") == [(t.unexpected, "-1.."), (t.number, "5")]
 
 def test_punctuation():
-    assert l(". ") == [t.DOT]
-    assert l(".") == [t.DOT]
-    assert l("...") == [t.ELLIPSIS]
-    assert l("=>.") == [t.ARROW, t.DOT]
-    assert l("=>.") == [t.ARROW, t.DOT]
-    assert l("..") == [t.UNEXPECTED("..")]
-    assert l("....") == [t.UNEXPECTED("....")]
-    assert l("..=>") == [t.UNEXPECTED(".."), t.ARROW]
-    assert l("{`foo`}") == [t.BRACEL, t.TEMPLATE("`foo`"), t.BRACER]
+    assert l(". ") == [(".", ".")]
+    assert l(".") == [(".", ".")]
+    assert l("...") == [("...", "...")]
+    assert l("===") == [("===", "===")]
+    assert l("=>.") == [("=>", "=>"), (".", ".")]
+    assert l("=>.") == [("=>", "=>"), (".", ".")]
+    assert l("..") == [(t.unexpected, "..")]
+    assert l("....") == [("...", "..."), (".", ".")]
+    assert l("..=>") == [(t.unexpected, ".."), ("=>", "=>")]
 
 
 def test_var_and_keyword():
-    assert l("import") == [t.IMPORT]
-    assert l("importfoo") == [t.VAR("importfoo")]
-    assert l("from _bar const") == [t.FROM, t.VAR("_bar"), t.CONST]
+    assert l("import") == [("import", "import")]
+    assert l("importfoo") == [(t.name, "importfoo")]
+    assert l("from _bar const") == [("from", "from"), (t.name, "_bar"), ("const", "const")]
 
 
 def test_string():
-    assert l('"foo"') == [t.STRING('"foo"')]
-    assert l(r'"foo\"bar"') == [t.STRING(r'"foo\"bar"')]
-    assert l(r'"foo\\" 42') == [t.STRING(r'"foo\\"'), t.NUMBER("42")]
-    assert l('42"foo', strip_final_newline=False) == [t.NUMBER("42"), t.UNEXPECTED('"foo\n')]
-    assert l('"foo\nbar"', strip_final_newline=False) == [t.UNEXPECTED('"foo\n'), t.VAR('bar'), t.UNEXPECTED('"\n')]
+    assert l('"foo"') == [(t.string, '"foo"')]
+    assert l(r'"foo\"bar"') == [(t.string, '"foo\"bar"')]
+    assert l(r'"foo\\" 42') == [(t.string, '"foo\\"'), (t.number, "42")]
+    assert l('42"foo') == [(t.number, "42"), (t.unexpected, '"foo')]
+    assert l('"foo\nbar"') == [(t.unexpected, '"foo\n'), (t.name, 'bar'), ('unexpected', '"')]
 
 
 def test_template():
-    assert l('`foo`') == [t.TEMPLATE('`foo`')]
-    assert l(r'`foo\`bar`') == [t.TEMPLATE(r'`foo\`bar`')]
-    assert l(r'`foo\\` 42') == [t.TEMPLATE(r'`foo\\`'), t.NUMBER("42")]
-    assert l(r'`foo${42}bar`') == [t.TEMPLATE(r'`foo${'), t.NUMBER("42"), t.TEMPLATE(r'}bar`')]
+    assert l('``') == [("`", "``")]
+    assert l('`foo`') == [("`", "`foo`")]
+    assert l(r'`foo\`bar`') == [("`", "`foo`bar`")]
+    assert l(r'`foo\\` 42') == [("`", "`foo\\`"), (t.number, "42")]
+    assert l(r'`foo${42}bar`') == [("`", "`foo${"), (t.number, "42"), (t.template, r'}bar`')]
     expected = [
-        ('TEMPLATE', '`foo${'),
-        ('VAR', 'a'),
-        ('BRACKL', '['),
-        ('TEMPLATE', '`inner`'),
-        ('BRACKR', ']'),
-        ('TEMPLATE', '}bar`')
+        ("`", "`foo${"),
+        (t.name, 'a'),
+        ('[', '['),
+        ("`", "`inner${"),
+        (t.number, '1'),
+        (t.template, '}2${'),
+        (t.number, '3'),
+        (t.template, '}`'),
+        (']', ']'),
+        (t.template, '}bar`')
     ]
-    assert l(r'`foo${a[`inner`]}bar`') == expected
-    assert l('`foo\nbar`') == [t.TEMPLATE('`foo\nbar`')]
+    assert l(r'`foo${a[`inner${1}2${3}`]}bar`') == expected
+    assert l('`foo\nbar`') == [("`", "`foo\nbar`")]
+    assert l('`${`${a}--${b}`}`') == [
+        ('`', '`${'),
+        ('`', '`${'),
+        (t.name, 'a'),
+        (t.template, '}--${'),
+        (t.name, 'b'),
+        (t.template, '}`'),
+        (t.template, '}`')
+    ]
+    assert l("{`foo`}") == [("{", "{"), ("`", "`foo`"), ("}", "}")]
+
 
 def test_line_numbers():
-    # note that at the end of iteration, the reader's pos is 1 char ahead of the end
-    reader = t.Reader("012  56")
-    assert next(reader) == t.Token(*t.NUMBER("012"), 0, 1, 0)
-    assert next(reader) == t.Token(*t.NUMBER("56"), 5, 1, 5)
-    assert next(reader).name == t.NEWLINE.name
-    with pytest.raises(StopIteration):
-        next(reader)
+    reader = t.TokenStream.from_source("012  56")
+    eat = lambda: [reader.current, reader.advance()][0]
+    assert eat() == t.Token(t.number, "012", ANY, 0, 1, 0)
+    assert eat() == t.Token(t.number, "56", ANY, 5, 1, 5)
+    assert eat().type == t.eof
 
-    reader = t.Reader("0\n23\n567\n")
-    assert next(reader) == t.Token(*t.NUMBER("0"), 0, 1, 0)
-    assert next(reader).name == t.NEWLINE.name
-    assert next(reader) == t.Token(*t.NUMBER("23"), 2, 2, 0)
-    assert next(reader).name == t.NEWLINE.name
-    assert next(reader) == t.Token(*t.NUMBER("567"), 5, 3, 0)
-    assert next(reader).name == t.NEWLINE.name
-    with pytest.raises(StopIteration):
-        next(reader)
+    reader = t.TokenStream.from_source("0\n23\n567\n")
+    assert eat() == t.Token(t.number, "0", ANY, 0, 1, 0)
+    assert eat() == t.Token(t.number, "23", ANY, 2, 2, 0)
+    assert eat() == t.Token(t.number, "567", ANY, 5, 3, 0)
+    assert eat().type == t.eof
 
-    reader = t.Reader("012//56\n8\n")
-    assert next(reader) == t.Token(*t.NUMBER("012"), 0, 1, 0)
-    assert next(reader).name == t.NEWLINE.name
-    assert next(reader) == t.Token(*t.NUMBER("8"), 8, 2, 0)
-    assert next(reader).name == t.NEWLINE.name
-    with pytest.raises(StopIteration):
-        next(reader)
+    reader = t.TokenStream.from_source("012//56\n8\n")
+    assert eat() == t.Token(t.number, "012", ANY, 0, 1, 0)
+    assert eat() == t.Token(t.number, "8", ANY, 8, 2, 0)
+    assert eat().type == t.eof
 
-    reader = t.Reader("0\n`3\n5`\n8")
-    assert next(reader) == t.Token(*t.NUMBER("0"), 0, 1, 0)
-    assert next(reader).name == t.NEWLINE.name
-    assert next(reader)  == t.Token(*t.TEMPLATE("`3\n5`"), 2, 2, 0)
-    assert next(reader).name == t.NEWLINE.name
-    assert next(reader) == t.Token(*t.NUMBER("8"), 8, 4, 0)
-    assert next(reader).name == t.NEWLINE.name
-    with pytest.raises(StopIteration):
-        next(reader)
+    reader = t.TokenStream.from_source("0\n`3\n5`\n8")
+    assert eat() == t.Token(t.number, "0", ANY, 0, 1, 0)
+    assert eat() == t.Token("`", "`3\n5`", ANY, 2, 2, 0)
+    assert eat() == t.Token(t.number, "8", ANY, 8, 4, 0)
+    assert eat().type == t.eof
+
 
 def test_combined():
-    assert l(".12.6") == [t.DOT, t.NUMBER("12.6")]
+    assert l(".12.6") == [(".", "."), (t.number, "12.6")]
 
 
 def test_escaping():
     text = (Path(__file__).parent / "data/escaping.dn.js").read_text()
-    assert l(text) == [t.STRING('"\\"baz\\""')] == [t.STRING(text[:-1])]
+    assert l(text) == [(t.string, '""baz""')]
 
     text = (Path(__file__).parent / "data/template.dn.js").read_text()
-    assert l(text)[-1] == t.BRACER
+    assert l(text)[-1] == ("}", "}")
 
 
 def test_comments():
@@ -116,22 +129,18 @@ def test_comments():
         //
     }'''
     expected = [
-        ('BRACEL', '{'),
-        ('NEWLINE', '\n'),
-        ('STRING', '"key"'),
-        ('COLON', ':'),
-        ('BRACKL', '['),
-        ('STRING', '"item0"'),
-        ('COMMA', ','),
-        ('STRING', '"not//a//comment"'),
-        ('COMMA', ','),
-        ('NUMBER', '3.14'),
-        ('COMMA', ','),
-        ('TRUE', 'true'),
-        ('BRACKR', ']'),
-        ('NEWLINE', '\n'),
-        ('NEWLINE', '\n'),
-        ('NEWLINE', '\n'),
-        ('BRACER', '}'),
+        ('{', '{'),
+        (t.string, '"key"'),
+        (':', ':'),
+        ('[', '['),
+        (t.string, '"item0"'),
+        (',', ','),
+        (t.string, '"not//a//comment"'),
+        (',', ','),
+        (t.number, '3.14'),
+        (',', ','),
+        (t.literal, 'true'),
+        (']', ']'),
+        ('}', '}'),
     ]
     assert l(text) == expected

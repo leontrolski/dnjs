@@ -1,245 +1,210 @@
-from collections import namedtuple
 from dataclasses import dataclass
-from functools import partial
-from textwrap import dedent
-from typing import Iterator, List, Optional, Tuple
-import string
-
-t = namedtuple("TokenConstructor", ["name", "s"])
-
-# special
-EMPTYFILE = t("EMPTYFILE", "")
-EOF = t("EOF", "")
-UNEXPECTED = lambda v: t("UNEXPECTED", v)
-NEWLINE = t("NEWLINE", "\n")
-
-# keyword
-IMPORT = t("IMPORT", "import")
-FROM = t("FROM", "from")
-EXPORT = t("EXPORT", "export")
-DEFAULT = t("DEFAULT", "default")
-CONST = t("CONST", "const")
-NULL = t("NULL", "null")
-TRUE = t("TRUE", "true")
-FALSE = t("FALSE", "false")
-keyword_map = {token.s: token for token in (IMPORT, FROM, EXPORT, DEFAULT, CONST, NULL, TRUE, FALSE)}
-
-# punctuation
-ASSIGN = t("ASSIGN", "=")
-ARROW = t("ARROW", "=>")
-PARENL = t("PARENL", "(")
-PARENR = t("PARENR", ")")
-BRACEL = t("BRACEL", "{")
-BRACER = t("BRACER", "}")
-BRACKL = t("BRACKL", "[")
-BRACKR = t("BRACKR", "]")
-COMMA = t("COMMA", ",")
-COLON = t("COLON", ":")
-DOT = t("DOT", ".")
-ELLIPSIS  = t("ELLIPSIS", "...")
-QUESTION  = t("QUESTION", "?")
-EQ = t("EQ", "===")
-punctuation_map = {token.s: token for token in (ASSIGN, ARROW, PARENL, PARENR, BRACEL, BRACER, BRACKL, BRACKR, COMMA, COLON, DOT, ELLIPSIS, QUESTION, EQ)}
-punctuation_tree = {}
-for p in punctuation_map:
-    tree = punctuation_tree
-    for character in p:
-        if character not in tree:
-            tree[character] = {}
-        tree = tree[character]
-
-# "dynamic"
-NUMBER = lambda v: t("NUMBER", v)
-VAR = lambda v: t("VAR", v)
-STRING = lambda v: t("STRING", v)
-TEMPLATE = lambda v: t("TEMPLATE", v)
-NUMBER.name = "NUMBER"
-VAR.name = "VAR"
-STRING.name = "STRING"
-TEMPLATE.name = "TEMPLATE"
-
-ws = set(" \t\f\r")  # note no \n
-number_begin = set("-" + string.digits)
-number_all = set("." + string.digits)
-var_begin = set("_" + string.ascii_letters)
-var_all = set("_" + string.ascii_letters + string.digits)
-# quote-y
-esc = "\\"
-quote = '"'
-backtick = "`"
-dollarbrace = "${"
-bracer = "}"
-# misc
-newline = "\n"
-comment = "//"
-dot = "."
+from functools import partial, lru_cache
+from pathlib import Path
+from typing import Dict, Iterator, Optional, Union
+from string import ascii_letters, digits
+import uuid
 
 
 @dataclass
 class Token:
-    name: str
-    s: str
-    # these are all for the start of the token
+    type: str
+    value: str
+    filepath: Optional[Path]
     pos: int
     lineno: int
     linepos: int
 
 
+# you should never see this
+_void_token = Token(type="VOID", value="VOID", filepath=None, pos=0, lineno=0, linepos=0)
+
+# token types
+name, string, number, template, literal = "name", "string", "number", "template", "literal"
+# = => ( ) { } [ ] , : . ... ? === import from export default const `
+eof = "\x03"  # end of text character
+unexpected = "unexpected"
+apply = "$"
+many = "*"
+d_name, d_many, d_brack, d_brace = "dname", "d*", "d[", "d{"
+atoms = {name, string, number, template, literal, d_name}
+
+
+whitespace = set(" \t\f\r")  # note no \n
+_number_begin = set("-" + digits)
+_number_all = set("." + digits)
+_name_begin = set("_" + ascii_letters)
+_name_all = set("_" + ascii_letters + digits)
+_literal_values = ["null", "true", "false"]
+_keyword_values = ["import", "from", "export", "default", "const"]
+_punctuation_values = ["=", "(", ")", "{", "}", "[", "]", ",", ":", ".", "?", "=>", "...", "==="]
+_interim_punctuation_values = ["..", "=="]
+
+class TokenStreamEmptyError(RuntimeError):
+    pass
+
+
+UUID_SOURCE_MAP: Dict[uuid.UUID, str] = {}
+
+
 @dataclass
-class UnexpectedEOF(RuntimeError):
-    token: Token
+class TokenStream:
+    # should never raise an error, only return "unexpected" tokens
+    filepath: Union[Path, uuid.UUID]
+    current: Token = _void_token
 
+    _source: Optional[str] = None
+    _pos: int = 0
+    _lineno: int = 1
+    _linepos: int = 0
+    _template_depth: int = 0
 
-class SafeEOF(str):
-    def __getitem__(self, n) -> Optional[str]:
-        try:
-            return super().__getitem__(n)
-        except IndexError as e:
-            return None
+    @classmethod
+    def from_source(cls, source: str):
+        source_uuid = uuid.uuid4()
+        UUID_SOURCE_MAP[source_uuid] = source.rstrip()
+        return cls(filepath=source_uuid)
 
+    @property
+    def source(self) -> str:
+        if isinstance(self.filepath, uuid.UUID):
+            return UUID_SOURCE_MAP[self.filepath]
+        if self._source is None:
+            self._source = self.filepath.read_text().rstrip()
+        return self._source
 
-@dataclass
-class Reader:
-    # use as an iterator, everything else is private really
-    # should never raise an error, only return UNEXPECTED tokens
-
-    s: str
-    filepath: Optional[str] = None
-    pos: int = 0
-    lineno: int = 1
-    linepos: int = 0
-    template_depth: int = 0
+    def advance(self) -> None:
+        if self.current.type == eof:
+            return
+        current = self._read()
+        while current.type == "\n":
+            current = self._read()
+        self.current = current
 
     def __post_init__(self):
-        self.s = SafeEOF(self.s.rstrip() + newline)  # always end on a newline
+        self.advance()
 
-    def inc(self) -> None:
-        self.pos += 1
-        self.linepos += 1
+    def __repr__(self) -> str:
+        return f"<TokenStream file:{self.filepath}>"
 
-    def incline(self) -> None:
-        self.linepos = 0
-        self.lineno += 1
+    def _read(self) -> Token:
+        def char() -> str:
+            if self._pos == len(self.source):
+                return eof
+            return self.source[self._pos]
 
-    @property
-    def this(self) -> str:
-        return self.s[self.pos]
+        def inc() -> None:
+            self._pos += 1
+            self._linepos += 1
 
-    @property
-    def at_comment(self):
-        return (self.this or "") + (self.s[self.pos + 1] or "") == comment
-
-    def next(self) -> str:
-        this = self.this
-        self.inc()
-        return this
-
-    def skip(self):
-        while self.this in ws or self.at_comment:
-            if self.at_comment:
-                self.inc()
-                self.inc()
-                while self.this != newline:
-                    self.inc()
-            else:
-                self.inc()
-
-    def read(self) -> Token:
-        self.skip()
-        make = partial(Token, pos=self.pos, lineno=self.lineno, linepos=self.linepos)
-        token_str = self.next()
+        def inc_line() -> None:
+            self._linepos = 0
+            self._lineno += 1
 
         def gobble():
-            nonlocal token_str
-            if self.this is None:
-                raise UnexpectedEOF(make(*UNEXPECTED(token_str)))
-            token_str += self.next()
+            before = char()
+            inc()
+            return before
 
-        if token_str is None:
-            return make(*EOF)
+        def at_comment() -> bool:
+            if self._pos >= len(self.source) - 1:
+                return False
+            return self.source[self._pos] + self.source[self._pos + 1] == "//"
 
-        if token_str == NEWLINE.s:
-            self.incline()
-            return make(*NEWLINE)
+        # eat up whitespace and comments
+        while char() in whitespace or at_comment():
+            if at_comment():
+                inc()
+                inc()
+                while char() not in {"\n", eof}:
+                    inc()
+            else:
+                inc()
 
-        if token_str == quote:
+        make = partial(Token, pos=self._pos, filepath=self.filepath, lineno=self._lineno, linepos=self._linepos)
+        t = char()
+        inc()
+
+        if t == eof:
+            return make(eof, eof)
+
+        if t == "\n":
+            inc_line()
+            return make("\n", "\n")
+
+        if t == '"':
             while True:
-                char = self.this
-                if char == newline:
+                this_char = char()
+                if this_char == eof:
+                    return make(unexpected, t)
+                if this_char == "\n":
+                    t += gobble()
+                    return make(unexpected, t)
+                elif this_char == "\\":
                     gobble()
-                    return make(*UNEXPECTED(token_str))
-                elif char == esc:
-                    gobble()
-                    gobble()
-                elif char == quote:
-                    gobble()
-                    return make(*STRING(token_str))
+                    t += gobble()
+                elif this_char == '"':
+                    t += gobble()
+                    return make(string, t)
                 else:
-                    gobble()
+                    t += gobble()
 
-        if token_str == backtick or (token_str == bracer and self.template_depth):
-            dollar, brace = dollarbrace
-            if token_str == backtick:
-                self.template_depth += 1
+        if t == "`" or (t == "}" and self._template_depth):
+            if t == "`":
+                self._template_depth += 1
             while True:
-                char = self.this
-                if char == esc:
+                this_char = char()
+                if this_char == eof:
+                    return make(unexpected, t)
+                if this_char == "\\":
                     gobble()
-                    gobble()
-                elif char == dollar:
-                    gobble()
-                    if self.this == brace:
-                        gobble()
-                        return make(*TEMPLATE(token_str))
-                elif char == backtick:
-                    self.template_depth -= 1
-                    gobble()
-                    return make(*TEMPLATE(token_str))
-                elif char == newline:
-                    self.incline()
-                    gobble()
+                    t += gobble()
+                elif this_char == "$":
+                    t += gobble()
+                    if char() == "{":
+                        t += gobble()
+                        return make("`" if  t[0] == "`" else template, t)
+                elif this_char == "`":
+                    self._template_depth -= 1
+                    t += gobble()
+                    return make("`" if  t[0] == "`" else template, t)
+                elif this_char == "\n":
+                    inc_line()
+                    t += gobble()
                 else:
-                    gobble()
+                    t += gobble()
 
-        if token_str in punctuation_tree:
-            tree = punctuation_tree[token_str]
-            while self.this in tree:
-                gobble()
-            if token_str not in punctuation_map:
-                return make(*UNEXPECTED(token_str))
-            return make(*punctuation_map[token_str])
+        if t in _punctuation_values:
+            if t + char() in _punctuation_values + _interim_punctuation_values:
+                t += gobble()
+                if t + char() in _punctuation_values:
+                    t += gobble()
+                    return make(t, t)
+                if t in _interim_punctuation_values:
+                    return make(unexpected, t)
+                return make(t, t)
+            return make(t, t)
 
-        if token_str in number_begin:
+        if t in _number_begin:
             seen_decimal_point = False
-            while self.this in number_all:
-                digit = self.next()
-                if digit == dot:
+            while char() in _number_all:
+                digit = char()
+                inc()
+                if digit == ".":
                     if seen_decimal_point:
-                        token_str += digit
-                        return make(*UNEXPECTED(token_str))
+                        t += digit
+                        return make(unexpected, t)
                     seen_decimal_point= True
-                token_str += digit
-            return make(*NUMBER(token_str))
+                t += digit
+            return make(number, t)
 
-        if token_str in var_begin:
-            while self.this in var_all:
-                gobble()
-            return make(*keyword_map.get(token_str, VAR(token_str)))
+        if t in _name_begin:
+            while char() in _name_all:
+                t += gobble()
+            if t in _keyword_values:
+                return make(t, t)
+            if t in _literal_values:
+                return make(literal, t)
+            return make(name, t)
 
-        return make(*UNEXPECTED(token_str))
-
-    def __next__(self) -> Token:
-        try:
-            peek = self.read()
-        except UnexpectedEOF as e:
-            return e.token
-        if peek.name == EOF.name:
-            # rewind
-            self.pos -= 1
-            self.linepos -= 1
-            self.lineno -= 1
-            raise StopIteration
-        return peek
-
-    def __iter__(self) -> Iterator[Token]:
-        return self
+        return make(unexpected, t)

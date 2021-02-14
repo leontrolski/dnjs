@@ -1,11 +1,9 @@
 from dataclasses import asdict, is_dataclass
 from html import escape
 import re
-from typing import Any
+from typing import Any, Callable
 
-from bs4 import BeautifulSoup
-
-from . import builtins, interpreter
+from dnjs import builtins
 
 SELF_CLOSING = {
     "area",
@@ -23,10 +21,9 @@ SELF_CLOSING = {
     "track",
     "wbr",
 }
-SPACE_PATTERN = re.compile(r'^(\s*)', re.MULTILINE)
 
 
-def make_value_js_friendly(value: interpreter.Value) -> interpreter.Value:
+def make_value_js_friendly(value: builtins.Value) -> builtins.Value:
     if value is None or isinstance(value, (float, int, bool, str, builtins.TrustedHtml)):
         return value
     if isinstance(value, dict):
@@ -34,7 +31,7 @@ def make_value_js_friendly(value: interpreter.Value) -> interpreter.Value:
     if isinstance(value, (list, tuple)):
         return [make_value_js_friendly(n) for n in value]
     # we turn functions into null
-    if isinstance(value, interpreter.Function):
+    if isinstance(value, Callable):
         return None
     if is_dataclass(value):
         return make_value_js_friendly(asdict(value))
@@ -44,16 +41,16 @@ def make_value_js_friendly(value: interpreter.Value) -> interpreter.Value:
     raise RuntimeError(f"unable to make type jsonable {type(value)}")
 
 
-def to_html(value: interpreter.Value, prettify: bool=True) -> str:
+def to_html(value: builtins.Value, indent: int = 0) -> str:
     assert builtins.is_renderable(value)
     if value is None:
         return ""
     if isinstance(value, builtins.TrustedHtml):
-        return value.string
+        return ("    " * indent) + value.string
     if isinstance(value, str):
-        return escape(value)
+        return ("    " * indent) + escape(value)
     if isinstance(value, (float, int)):
-        return str(value)
+        return ("    " * indent) + str(value)
     # else is vnode
     tag = value["tag"]
     attrs = {**value["attrs"]}
@@ -77,11 +74,13 @@ def to_html(value: interpreter.Value, prettify: bool=True) -> str:
             raise RuntimeError(f"unable to convert type {type(v)}")
 
     is_self_closing = tag in SELF_CLOSING and not children
-    html_str = f"<{escape(tag)}{attrs_str}>"
+    html_str = ("    " * indent) + f"<{escape(tag)}{attrs_str}>\n"
     if not is_self_closing:
-        html_str += ''.join(to_html(c, prettify=prettify) for c in children)
-        html_str += f"</{escape(tag)}>"
-    if prettify:
-        html_str = BeautifulSoup(html_str, features="html.parser").prettify()
-        html_str = SPACE_PATTERN.sub(r'\1\1\1\1', html_str)  # make indent width 4
+        if tag in {"pre", "code", "textarea"}:
+            html_str = html_str[:-1]  # strip \n
+            html_str += "".join(to_html(c, 0) for c in children)
+            html_str += f"</{escape(tag)}>\n"
+        else:
+            html_str += "".join(to_html(c, indent + 1) for c in children) + "\n"
+            html_str += ("    " * indent) + f"</{escape(tag)}>\n"
     return html_str

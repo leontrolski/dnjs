@@ -16,7 +16,7 @@ root = Path(__file__).parent
 templates = root / "templates"
 static = root / "static"
 shared = root / "shared"
-render = partial(dnjs.render, templates / "page.dn.js", prettify=False)
+render = partial(dnjs.render, templates / "page.dn.js")
 
 
 class Todo(BaseModel):

@@ -1,23 +1,21 @@
 from pathlib import Path
-from typing import Dict, Tuple, Union
+from typing import Callable, Dict, Tuple, Union
 
-from . import parser
-from . import interpreter
-from . import html
+from dnjs import builtins, interpreter, html
 
-def get_default_export(path: Union[Path, str]) -> interpreter.Value:
+
+def get_default_export(path: Union[Path, str]) -> builtins.Value:
     if not isinstance(path, Path):
         path = Path(path)
     module = interpreter.interpret(path)
     if module.default_export is interpreter.missing and module.value is interpreter.missing:
         raise RuntimeError(f"{path} has no default export")
-    if module.value is interpreter.missing:
+    if module.default_export is not interpreter.missing:
         return module.default_export
-    if module.default_export is interpreter.missing:
-        return module.value
+    return module.value
 
 
-def get_named_export(path: Union[Path, str], name: str) -> interpreter.Value:
+def get_named_export(path: Union[Path, str], name: str) -> builtins.Value:
     if not isinstance(path, Path):
         path = Path(path)
     module = interpreter.interpret(path)
@@ -26,12 +24,12 @@ def get_named_export(path: Union[Path, str], name: str) -> interpreter.Value:
     return module.exports[name]
 
 
-def render(path: Union[Path, str], *values: interpreter.Value, prettify: bool = True) -> str:
+def render(path: Union[Path, str], *values: builtins.Value) -> str:
     if not isinstance(path, Path):
         path = Path(path)
 
     values = tuple(html.make_value_js_friendly(v) for v in values)
     f = get_default_export(path)
-    assert isinstance(f, interpreter.Function)
+    assert isinstance(f, Callable)
     html_tree = f(*values)
-    return html.to_html(html.make_value_js_friendly(html_tree), prettify=prettify)
+    return html.to_html(html.make_value_js_friendly(html_tree))

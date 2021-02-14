@@ -1,117 +1,65 @@
 from textwrap import dedent
+from unittest.mock import ANY
 
 import pytest
 
-from dnjs.parser import (
-    parse,
-    Dnjs,
-    ParserError,
-    Import,
-    Var,
-    RestVar,
-    DictDestruct,
-    Dot,
-    Assignment,
-    ExportDefault,
-    Export,
-    Function,
-    FunctionCall,
-    Eq,
-    Ternary,
-    Template,
-)
+from dnjs import parser as p
+from dnjs import tokeniser as t
 
 
-def test_parser_empty():
-    text = ""
-    actual = parse(text)
-    expected = Dnjs([])
-    assert actual == expected
+def parse(s: str) -> str:
+    statements = p.parse_statements(t.TokenStream.from_source(source=s))
+    return "\n".join(str(s) for s in statements)
 
 
-def test_unknown_token():
-    with pytest.raises(ParserError) as e:
-        parse('"foo')
-    assert str(e.value) == dedent("""
-        <ParserError line:1>
-        Not sure how to deal with UNEXPECTED token: "foo
-
-        "foo
-        ^
-    """).strip()
+def test_empty():
+    assert parse("") == ""
 
 
-def test_parse_atoms():
-    assert parse('"foo"') == Dnjs(["foo"])
-    assert parse('"foo"\n"bar"') == Dnjs(["foo", "bar"])
-    assert parse('"foo\\nbär"') == Dnjs(["foo\nbär"])
-    assert parse('23') == Dnjs([23])
-    assert parse('-34.8') == Dnjs([-34.8])
-    assert parse('true') == Dnjs([True])
-    assert parse('false') == Dnjs([False])
-    assert parse('null') == Dnjs([None])
+def test_literal_and_names():
+    assert parse("1") == "1"
+    assert parse("1.4") == "1.4"
+    assert parse('"foo"') == '"foo"'
+    assert parse('bar') == 'bar'
+    assert parse('true') == 'true'
 
-def test_parse_array():
-    assert parse('[]') == Dnjs([[]])
+
+def test_infixes():
+    assert parse("1 === 2") == "(=== 1 2)"
+    assert parse("foo.bar") == "(. foo bar)"
+    assert parse("foo.bar === 4") == "(=== (. foo bar) 4)"
+    assert parse("foo.bar.baz") == "(. (. foo bar) baz)"
+    assert parse("(foo.bar === baz).qux") == "(. (( (=== (. foo bar) baz)) qux)"
+    assert parse("[foo.bar === baz.qux]") == "([ (=== (. foo bar) (. baz qux)))"
+
+
+def test_function_call():
+    assert parse("f(3, 4, 5)") == "($ f (* 3 4 5))"
+    assert parse("f(3, 4, g(5, 6 === 7))") == "($ f (* 3 4 ($ g (* 5 (=== 6 7)))))"
+    assert parse("f(3\n, 4, g(5, \n6 === 7),)") == "($ f (* 3 4 ($ g (* 5 (=== 6 7)))))"
+
+
+def test_arrays():
+    assert parse('[]') == '([)'
     text = '[1, 2, null]'
-    assert parse(text) == Dnjs([[1, 2, None]])
+    assert parse(text) == '([ 1 2 null)'
     text = '[1, [2], null]'
-    assert parse(text) == Dnjs([[1, [2], None]])
+    assert parse(text) == '([ 1 ([ 2) null)'
     text = '[1, 2, [3, [4, 5]], null]'
-    assert parse(text) == Dnjs([[1, 2, [3, [4, 5]], None]])
-    with pytest.raises(ParserError) as e:
-        parse('[1,,]')
-    assert str(e.value) == dedent("""
-        <ParserError line:1>
-        Didn't expect a comma here
-        [1,,]
-           ^
-    """).strip()
-    with pytest.raises(ParserError) as e:
-        parse('[1 2]')
-    assert str(e.value) == dedent("""
-        <ParserError line:1>
-        Expected a comma here
-        [1 2]
-           ^
-    """).strip()
+    assert parse(text) == '([ 1 2 ([ 3 ([ 4 5)) null)'
 
-def test_parse_object():
-    assert parse('{}') == Dnjs([{}])
+
+def test_object():
+    assert parse('{}') == '({)'
     text = '{"foo": 2}'
-    assert parse(text) == Dnjs([{"foo": 2}])
-    text = '{foo: 2}'
-    assert parse(text) == Dnjs([{"foo": 2}])
+    assert parse(text) == '({ (: "foo" 2))'
+    text = '{foo: 2, bar: 3, ...a}'
+    assert parse(text) == '({ (: foo 2) (: bar 3) (... a))'
     text = '{foo: [1, {"bar": 3}],}'
-    assert parse(text) == Dnjs([{"foo": [1, {"bar": 3}]}])
-    with pytest.raises(ParserError) as e:
-        parse('{foo}')
-    assert str(e.value) == dedent("""
-        <ParserError line:1>
-        Object's key needs a value
-        {foo}
-            ^
-    """).strip()
-    with pytest.raises(ParserError) as e:
-        parse('{foo, "are"}')
-    assert str(e.value) == dedent("""
-        <ParserError line:1>
-        Object, expected a colon here
-        {foo, "are"}
-            ^
-    """).strip()
-    with pytest.raises(ParserError) as e:
-        parse('{foo:1, 2: 3}')
-    assert str(e.value) == dedent("""
-        <ParserError line:1>
-        Object, expected a string here
-        {foo:1, 2: 3}
-                ^
-    """).strip()
-    # TODO: complete error coverage
+    assert parse(text) == '({ (: foo ([ 1 ({ (: "bar" 3)))))'
 
 
-def test_parser_add_comments():
+def test_comment():
     text = """\
         {
             "key": ["item0", "not//a//comment", 3.14, true]  // another {} comment
@@ -120,11 +68,11 @@ def test_parser_add_comments():
         }
     """
     actual = parse(text)
-    expected = Dnjs([{"key": ["item0", "not//a//comment", 3.14, True]}])
+    expected = '({ (: "key" ([ "item0" "not//a//comment" 3.14 true)))'
     assert actual == expected
 
 
-def test_parser_add_imports():
+def test_imports():
     text = """\
         import m from "mithril"
 
@@ -135,45 +83,30 @@ def test_parser_add_imports():
         }
     """
     actual = parse(text)
-    expected = Dnjs(
-        [
-            Import(Var("m"), "mithril"),
-            Import(DictDestruct([Var(name="base"), Var(name="form")]), "./base.dn.js"),
-            {"key": ["item0", "item1", 3.14, True]},
-        ]
+    expected = (
+        '(import (from m "mithril"))\n'
+        '(import (from (d{ base form) "./base.dn.js"))\n'
+        '({ (: key ([ "item0" "item1" 3.14 true)))'
     )
     assert actual == expected
 
 
-def test_parser_add_assignments_reference_and_rest():
+def test_assignments_reference_and_rest():
     text = """
         const foo = 45
         const bar = {}
         {"key": ["item0", "item1", 3.14, ...foo, true, bar], ...foo.bar, baz: 12}
     """
     actual = parse(text)
-    expected = Dnjs(
-        [
-            Assignment(var=Var(name="foo"), value=45),
-            Assignment(var=Var(name="bar"), value={}),
-            {
-                "key": [
-                    "item0",
-                    "item1",
-                    3.14,
-                    RestVar(var=Var(name="foo")),
-                    True,
-                    Var(name="bar"),
-                ],
-                RestVar(Dot(Var("foo"), "bar")): None,
-                "baz": 12,
-            },
-        ]
+    expected = (
+        '(const (= foo 45))\n'
+        '(const (= bar ({)))\n'
+        '({ (: "key" ([ "item0" "item1" 3.14 (... foo) true bar)) (... (. foo bar)) (: baz 12))'
     )
     assert actual == expected
 
 
-def test_parser_add_export():
+def test_export():
     text = """
         export default [6]
         export const base = 42
@@ -181,214 +114,64 @@ def test_parser_add_export():
         {"key": ["item0", "item1", 3.14, true]}
     """
     actual = parse(text)
-    expected = Dnjs(
-        [
-            ExportDefault([6.0]),
-            Export(Assignment(var=Var(name="base"), value=42.0)),
-            {"key": ["item0", "item1", 3.14, True]},
-        ]
-    )
-    assert actual == expected
-
-def test_parser_add_dot():
-    text = """
-        const foo = {bar: 42}
-        foo.bar
-        foo.bar.qux
-    """
-    actual = parse(text)
-    expected = Dnjs(
-        [
-            Assignment(var=Var(name="foo"), value={"bar": 42}),
-            Dot(left=Var(name="foo"), right="bar"),
-            Dot(left=Dot(left=Var(name="foo"), right="bar"), right="qux"),
-        ]
+    expected = (
+        '(export (default ([ 6)))\n'
+        '(export (const (= base 42)))\n'
+        '({ (: "key" ([ "item0" "item1" 3.14 true)))'
     )
     assert actual == expected
 
 
-def test_parser_add_functions():
+def test_functions():
     text = """
         const a = (1)
         const f = () => 42
         export default (a) => a
         export const otherF = (a, b, c) => ({"foo": [1]})
         const foo = [f(), otherF(a, b, c)]
+        foo(1)(2, 3)(4)
     """
     actual = parse(text)
-    expected = Dnjs(
-        [
-            Assignment(var=Var(name="a"), value=1),
-            Assignment(var=Var(name="f"), value=Function(args=[], return_value=42)),
-            ExportDefault(
-                value=Function(args=[Var(name="a")], return_value=Var(name="a"))
-            ),
-            Export(
-                assignment=Assignment(
-                    var=Var(name="otherF"),
-                    value=Function(
-                        args=[Var(name="a"), Var(name="b"), Var(name="c")],
-                        return_value={"foo": [1]},
-                    ),
-                )
-            ),
-            Assignment(
-                var=Var(name="foo"),
-                value=[
-                    FunctionCall(var=Var(name="f"), values=[]),
-                    FunctionCall(
-                        var=Var(name="otherF"),
-                        values=[Var(name="a"), Var(name="b"), Var(name="c")],
-                    ),
-                ],
-            ),
-        ]
-    )
+    expected = dedent("""
+        (const (= a (( 1)))
+        (const (= f (=> (d*) '42)))
+        (export (default (=> (d* a) 'a)))
+        (export (const (= otherF (=> (d* a b c) '(( ({ (: "foo" ([ 1))))))))
+        (const (= foo ([ ($ f (*)) ($ otherF (* a b c)))))
+        ($ ($ ($ foo (* 1)) (* 2 3)) (* 4))
+    """).strip()
     assert actual == expected
 
-    with pytest.raises(ParserError) as e:
-        parse('const f = () => {foo: 42}')
-    assert str(e.value) == dedent("""
-        <ParserError line:1>
-        Functions returning literal objects must enclose them in brackets, eg: x => ({a: 1})
-        const f = () => {foo: 42}
-                        ^
-    """).strip()
+    assert parse("const foo = (a, b) => m(c)") == "(const (= foo (=> (d* a b) '($ m (* c)))))"
 
-
-def test_precedence():
-    assert parse("1 === 2") == Dnjs([Eq(1, 2)])
-    assert parse("[foo.bar === baz.qux]") == Dnjs([[Eq(
-        Dot(Var("foo"), "bar"),
-        Dot(Var("baz"), "qux")
-    )]])
-    assert parse("(foo.bar === baz).qux") == Dnjs([
-        Dot(
-            Eq(
-                Dot(Var("foo"), "bar"),
-                Var("baz")
-            ),
-            "qux"
-        )
-    ])
 
 
 def test_parser_add_ternary():
     actual = parse('(a === 3) ? "foo" : "bar"')
-    expected = Dnjs(
-        [
-            Ternary(
-                predicate=Eq(Var(name="a"), 3.0),
-                if_true="foo",
-                if_not_true="bar",
-            )
-        ]
-    )
-    assert actual == expected
-
+    assert actual == '''(? (( (=== a 3)) '"foo" '"bar")'''
     actual = parse('a === (3 ? "foo" : "bar")')
-    expected = Dnjs([
-        Eq(
-            Var("a"),
-            Ternary(
-                predicate=3,
-                if_true="foo",
-                if_not_true="bar",
-            )
-        )
-    ])
-    assert actual == expected
-
-
+    assert actual == '''(=== a (( (? 3 '"foo" '"bar")))'''
     actual = parse('a === 3 ? "foo" : "bar"')
-    expected = Dnjs(
-        [
-            Ternary(
-                predicate=Eq(Var(name="a"), 3.0),
-                if_true="foo",
-                if_not_true="bar",
-            )
-        ]
-    )
-    assert actual == expected
+    assert actual == '''(? (=== a 3) '"foo" '"bar")'''
+    actual = parse('''
+        a
+            ? b
+        : c
+            ? d
+            : e
+    ''')
+    assert actual == "(? a 'b '(? c 'd 'e))"
 
 
-def test_parser_add_map_and_filter():
-    text = """
-        const a = [4, 5, 6].map((v, i) => 42).filter((v, i) => (i === 0 ? v : null) )
-        const a = Object.entries(foo.bar).map(([k, v], i) => v)
-        Object.fromEntries(a.b.map((v, i) => 42))
-    """
-    actual = parse(text)
-    expected = Dnjs(
-        values=[
-            Assignment(
-                var=Var(name="a"),
-                value=FunctionCall(
-                    var=Dot(
-                        left=FunctionCall(
-                            var=Dot(left=[4, 5, 6], right="map"),
-                            values=[
-                                Function(
-                                    args=[Var(name="v"), Var(name="i")], return_value=42
-                                )
-                            ],
-                        ),
-                        right="filter",
-                    ),
-                    values=[
-                        Function(
-                            args=[Var(name="v"), Var(name="i")],
-                            return_value=Ternary(
-                                Eq(Var("i"), 0),
-                                Var("v"),
-                                None,
-                            ),
-                        )
-                    ],
-                ),
-            ),
-            Assignment(
-                var=Var(name="a"),
-                value=FunctionCall(
-                    var=Dot(
-                        left=FunctionCall(
-                            var=Dot(left=Var(name="Object"), right="entries"),
-                            values=[Dot(left=Var(name="foo"), right="bar")],
-                        ),
-                        right="map",
-                    ),
-                    values=[
-                        Function(
-                            args=[
-                                [Var(name="k"), Var(name="v")],
-                                Var(name="i"),
-                            ],
-                            return_value=Var(name="v"),
-                        )
-                    ],
-                ),
-            ),
-            FunctionCall(
-                var=Dot(left=Var(name="Object"), right="fromEntries"),
-                values=[
-                    FunctionCall(
-                        var=Dot(
-                            left=Dot(left=Var(name="a"), right="b"),
-                            right="map",
-                        ),
-                        values=[
-                            Function(
-                                args=[Var(name="v"), Var(name="i")], return_value=42
-                            )
-                        ],
-                    )
-                ],
-            ),
-        ]
-    )
-    assert actual == expected
+def test_map_and_filter():
+    actual = parse('const a = [4, 5, 6].map((v, i) => 42).filter((v, i) => (i === 0 ? v : null) )')
+    assert actual == "(const (= a ($ (. ($ (. ([ 4 5 6) map) (* (=> (d* v i) '42))) filter) (* (=> (d* v i) '(( (? (=== i 0) 'v 'null)))))))"
 
+    actual = parse('const a = Object.entries(foo.bar).map(([k, v], i) => v)')
+    assert actual == "(const (= a ($ (. ($ (. Object entries) (* (. foo bar))) map) (* (=> (d* (d[ k v) i) 'v)))))"
+
+    actual = parse('Object.fromEntries(a.b.map((v, i) => 42))')
+    assert actual == "($ (. Object fromEntries) (* ($ (. (. a b) map) (* (=> (d* v i) '42)))))"
 
 def test_parser_add_nodes():
     text = """
@@ -397,28 +180,18 @@ def test_parser_add_nodes():
     m(".foo#my-li.bar")
     """
     actual = parse(text)
-    expected = Dnjs(
-        values=[
-            Assignment(
-                var=Var(name="a"),
-                value=FunctionCall(var=Var(name="m"), values=["li", "hello"]),
-            ),
-            Assignment(
-                var=Var(name="a"),
-                value=FunctionCall(
-                    var=Var(name="m"), values=["li#my-li.foo.bar", "hello", [1, 2]]
-                ),
-            ),
-            FunctionCall(var=Var(name="m"), values=[".foo#my-li.bar"]),
-        ]
+    expected = (
+        '(const (= a ($ m (* "li" "hello"))))\n'
+        '(const (= a ($ m (* "li#my-li.foo.bar" "hello" ([ 1 2)))))\n'
+        '($ m (* ".foo#my-li.bar"))'
     )
     assert actual == expected
 
 
-def test_parser_add_template():
-    text = dedent(
-        """
+def test_templates():
+    text = """
     const a = `hi`
+    const a = ``
     const a = `hi ${first} and ${second} ${third} `
     const a = `  hi ${first}${second}`
     const a = `$${money.amount}.00`
@@ -426,56 +199,117 @@ def test_parser_add_template():
     ${foo}
     lin//es`
     [`foo $${money.amount}.00`]
+    const b = `${`${a}--${b}`}`
     """
-    )
-
     actual = parse(text)
-    expected = Dnjs(
-        values=[
-            Assignment(var=Var(name="a"), value=Template(values=["hi"])),
-            Assignment(
-                var=Var(name="a"),
-                value=Template(
-                    values=[
-                        "hi ",
-                        Var(name="first"),
-                        " and ",
-                        Var(name="second"),
-                        " ",
-                        Var(name="third"),
-                        " ",
-                    ]
-                ),
-            ),
-            Assignment(
-                var=Var(name="a"),
-                value=Template(
-                    values=["  hi ", Var(name="first"), "", Var(name="second"), ""]
-                ),
-            ),
-            Assignment(
-                var=Var(name="a"),
-                value=Template(
-                    values=[
-                        "$",
-                        Dot(left=Var(name="money"), right="amount"),
-                        ".00",
-                    ]
-                ),
-            ),
-            Assignment(
-                var=Var(name="a"),
-                value=Template(values=["many\n", Var(name="foo"), "\nlin//es"]),
-            ),
-            [
-                Template(
-                    values=[
-                        "foo $",
-                        Dot(left=Var(name="money"), right="amount"),
-                        ".00",
-                    ]
-                )
-            ],
-        ]
+    expected = (
+        '(const (= a (` `hi`)))\n'
+        '(const (= a (` ``)))\n'
+        '(const (= a (` `hi ${ first } and ${ second } ${ third } `)))\n'
+        '(const (= a (` `  hi ${ first }${ second }`)))\n'
+        '(const (= a (` `$${ (. money amount) }.00`)))\n'
+        '(const (= a (` `many\n'
+        '    ${ foo }\n'
+        '    lin//es`)))\n'
+        '([ (` `foo $${ (. money amount) }.00`))\n'
+        '(const (= b (` `${ (` `${ a }--${ b }`) }`)))'
     )
     assert actual == expected
+
+
+def test_errors():
+    with pytest.raises(p.ParseError) as e:
+        parse('{a: b: c, d}')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        token is not of type: name string
+        {a: b: c, d}
+        __^
+    """).strip()
+
+    with pytest.raises(p.ParseError) as e:
+        parse('{a: b, c d}')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        expected ',' got 'd'
+        {a: b, c d}
+        _________^
+    """).strip()
+
+    with pytest.raises(p.ParseError) as e:
+        parse('[a, b c]')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        expected ',' got 'c'
+        [a, b c]
+        ______^
+    """).strip()
+
+    with pytest.raises(p.ParseError) as e:
+        assert parse('import a from "b" import c from "d"')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        expected statements to be on separate lines
+        import a from "b" import c from "d"
+        __________________^
+    """).strip()
+
+    with pytest.raises(p.ParseError) as e:
+        assert parse('[] []')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        expected statements to be on separate lines
+        [] []
+        ___^
+    """).strip()
+
+    with pytest.raises(p.ParseError) as e:
+        assert parse('42"foo')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        unexpected token
+        42"foo
+        __^
+    """).strip()
+
+    with pytest.raises(p.ParseError) as e:
+        assert parse('`foo${1}bar${')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        unexpected end of input
+        `foo${1}bar${
+        _____________^
+    """).strip()
+
+    with pytest.raises(p.ParseError) as e:
+        assert parse('[===3]')
+    assert str(e.value) == dedent("""
+        <ParserError line:1>
+        can't be used in prefix position
+        [===3]
+        _^
+    """).strip()
+
+
+    with pytest.raises(p.ParseError) as e:
+        assert parse('foo = 5')
+    assert "token is not of type" in str(e.value)
+
+    with pytest.raises(p.ParseError) as e:
+        assert parse('() => {}')
+    assert "token is not of type" in str(e.value)
+
+    with pytest.raises(p.ParseError) as e:
+        assert parse('{}.foo')
+    assert "token is not of type" in str(e.value)
+
+
+def test_assign_ternary():
+    text = "const f = a === 2 ? foo : bar"
+    assert parse(text) == "(const (= f (? (=== a 2) 'foo 'bar)))"
+
+    text = "const f = () => a === 2 ? foo : bar"
+    assert parse(text) == "(const (= f (=> (d*) '(? (=== a 2) 'foo 'bar))))"
+
+    text = "() => g(a, [f(b => a === 1)])"
+    assert parse(text) == "(=> (d*) '($ g (* a ([ ($ f (* (=> (d* b) '(=== a 1))))))))"

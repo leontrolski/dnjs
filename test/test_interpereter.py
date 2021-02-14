@@ -1,5 +1,11 @@
 from pathlib import Path
+from textwrap import dedent
+from typing import Union
 
+import pytest
+
+from dnjs import interpreter
+from dnjs import parser as p
 from dnjs import get_default_export, get_named_export
 
 data_dir = Path(__file__).parent / "data"
@@ -43,17 +49,16 @@ def test_ternary_eq():
 def test_map():
     actual = get_named_export(data_dir / "map.dn.js", "a")
     assert actual == [
-        {"myI": 0.0, "myV": 1.0},
-        {"myI": 1.0, "myV": 2.0},
-        {"myI": 3.0, "myV": 200.0},
+        {"myI": 0, "myV": 1},
+        {"myI": 1, "myV": 2},
+        {"myI": 3, "myV": 200},
     ]
     actual = get_named_export(data_dir / "map.dn.js", "b")
     assert actual == [
-        {"i": 0.0, "k": "1", "v": 2.0},
-        {"i": 1.0, "k": "3", "v": 4.0},
+        {"i": 0, "k": "3", "v": 4},
     ]
     actual = get_named_export(data_dir / "map.dn.js", "c")
-    assert actual == {"5": 6.0, "7": 8.0}
+    assert actual == {"5": 6, "7": 8}
 
     actual = get_named_export(data_dir / "map.dn.js", "d")
     assert actual == True
@@ -96,3 +101,23 @@ def test_templates():
     assert actual == "hello oli,\nyou are 29"
     actual = get_named_export(data_dir / "template.dn.js", "c")
     assert actual == {"foo": "\"hullo\"\ncat foo.txt > bar\ntail /dev/null", "bar": "\"baz\""}
+
+
+def test_rest_error():
+    with pytest.raises(p.ParseError) as e:
+        get_default_export(data_dir / "errors/rest.dn.js")
+    assert str(e.value).splitlines()[1:] == dedent("""
+        must be of type: {
+            ...foo,
+        _______^
+    """).strip().splitlines()
+
+
+def test_scope_error():
+    with pytest.raises(p.ParseError) as e:
+        get_default_export(data_dir / "errors/scope.dn.js")
+    assert str(e.value).splitlines()[1:] == dedent("""
+        variable bar is not in scope
+        export default bar
+        _______________^
+    """).strip().splitlines()

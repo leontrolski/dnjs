@@ -4,6 +4,4 @@
 #
 #    pip-compile
 #
-beautifulsoup4==4.9.1     # via -r requirements.in
 click==7.1.2              # via -r requirements.in
-soupsieve==2.0.1          # via beautifulsoup4

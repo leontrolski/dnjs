@@ -1,7 +1,7 @@
-from . import interpreter
+from . import builtins
 
 
-def to_css(value: interpreter.Value, prettify: bool=True) -> str:
+def to_css(value: builtins.Value) -> str:
     assert isinstance(value, dict)
     lines = []
     for k, v in value.items():

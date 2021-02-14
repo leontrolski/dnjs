@@ -1,10 +1,14 @@
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
 from functools import partial
 import math
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, Iterator
 
-from . import builtins, parser
+from dnjs import builtins
+from dnjs import parser as p
+from dnjs import tokeniser as t
 
 
 class Missing:
@@ -12,225 +16,112 @@ class Missing:
         return "<missing>"
 
 
-class Undefined:
-    def __repr__(self):
-        return "undefined"
-
-
 missing = Missing()
-undefined = Undefined()
-Value = Union[dict, list, str, float, int, bool, None]
-Func = Callable[..., Value]
-Scope = Dict[str, Value]
 
 
 @dataclass
 class Module:
     path: str
-    scope: Scope
-    exports: Dict[str, Union[Value, Func]]
-    default_export: Union[Missing, Value, Func]
-    value: Union[Missing, Value, Func]
+    scope: builtins.Scope
+    exports: Dict[str, builtins.Value]
+    default_export: Union[Missing, builtins.Value]
+    value: Union[Missing, builtins.Value]
 
 
-@dataclass
-class Function:
-    scope: Scope
-    arg_names: List[str]
-    return_value: parser.Value
-    first_arg_is_destructure: bool = False
+handlers = {
+    # atoms
+    t.name: builtins.name_handler,
+    t.d_name: lambda _, n: n.token.value,
+    t.literal: lambda _, n: {"null": None, "true": True, "false": False}[n.token.value],
+    t.number: lambda _, n: float(n.token.value) if "." in n.token.value else int(n.token.value),
+    t.string: lambda _, n: builtins.string(n.token.value),
+    t.template: lambda _, n: builtins.string(n.token.value),
 
-    def __call__(self, *args: Value):
-        # assert len(self.arg_names) == len(args)
-        scope_with_args = {**self.scope, **dict(zip(self.arg_names, args))}
-        return get(scope_with_args, self.return_value)
+    # unary
+    "const": builtins.Const,
+    "(": lambda _, __, a: a,
+    "import": builtins.Import,
+    "export": builtins.Export,
+    "default": builtins.Default,
+    "...": builtins.Ellipsis_,
+
+    # binary
+    "=": builtins.Assign,
+    "===": builtins.equal,
+    ".": builtins.dot_handler,
+    "from": builtins.From,
+    ":": lambda _, __, a, b: tuple((a, b)),
+    t.apply: lambda _, __, a, b: a(*b),
+
+    # ternary
+    "?": builtins.ternary,
+
+    # variadic
+    "[": builtins.array_handler,
+    "{": builtins.object_handler,
+    "`": lambda _, __, *values: "".join(str(n) for n in values),
+    t.many: lambda _, __, *values: list(values),
+    t.d_brack: lambda _, __, *values: list(values),
+    t.d_brace: lambda _, __, *values: list(values),
+    t.d_many: lambda _, __, *values: list(values),
+    "=>": lambda scope, _, a, b: partial(builtins.dnjs_function, scope, a, b),
+}
 
 
-@dataclass
-class MakeFunction:
-    f: Callable[[], Value]
-
-    def __call__(self, *args: Value):
-        return self.f(*args)
-
-
-CACHE: Dict[Tuple[str, float], Module] = {}
+def interpret_node(scope: builtins.Scope, node: p.Node):
+    if node.is_quoted:
+        return node
+    args = [interpret_node(scope, c) for c in node.children]
+    out = handlers[node.token.type](scope, node, *args)
+    return out
 
 
-def interpret(path: Path) -> Module:
-    cache_key = str(path.resolve()), path.stat().st_mtime
-    ast = CACHE.get(cache_key)
-    if ast is None:
-        ast = parser.parse(path.read_text(), str(path))
-        CACHE[cache_key] = ast
+def interpret(path: Optional[Path] = None, source: Optional[str] = None) -> Module:
+    if path is None:
+        token_stream = t.TokenStream.from_source(source)
+    else:
+        token_stream = t.TokenStream(path)
+    module = Module(
+        path=token_stream.filepath,
+        scope=dict(builtins.default_scope),
+        exports={},
+        default_export=missing,
+        value=missing,
+    )
+    for statement_node in p.parse_statements(token_stream):
+        statement = interpret_node(module.scope, statement_node)
 
-    module = Module(path=path, scope={}, exports={}, default_export=missing, value=missing)
-    for node in ast.values:
-        # import, ignoring external imports
-        if isinstance(node, parser.Import):
-            if not node.path.startswith("."):
+        if isinstance(statement, builtins.Const):
+            name, value = statement.arg.left, statement.arg.right
+            module.scope[name] = value
+
+        elif isinstance(statement, builtins.Import):
+            names, from_path = statement.arg.left, statement.arg.right
+            if not from_path.startswith("."):
                 continue
-            assert node.path.endswith(".dn.js")
-            import_path = path.parent / Path(node.path)
-            imported_module = interpret(import_path)
+            if not from_path.endswith(".dn.js"):
+                raise p.ParseError("can only import files ending .dn.js", statement.token)
+            imported_module = interpret(module.path.parent / Path(from_path))
 
-            if isinstance(node.var_or_destructure, parser.Var):
-                assert imported_module.default_export is not missing, f"{imported_module.path} missing export default"
-                module.scope[
-                    node.var_or_destructure.name
-                ] = imported_module.default_export
-            elif isinstance(node.var_or_destructure, parser.DictDestruct):
-                for var in node.var_or_destructure.vars:
-                    module.scope[var.name] = imported_module.exports[var.name]
-        # assign
-        elif isinstance(node, parser.Assignment):
-            module.scope[node.var.name] = get(module.scope, node.value)
-        # export
-        elif isinstance(node, parser.Export):
-            value = get(module.scope, node.assignment.value)
-            module.scope[node.assignment.var.name] = value
-            module.exports[node.assignment.var.name] = value
-        elif isinstance(node, parser.ExportDefault):
-            module.default_export = get(module.scope, node.value)
+            if isinstance(names, str):
+                if imported_module.default_export is missing:
+                    raise p.ParseError(f"{imported_module.path} missing export default", statement.token)
+                module.scope[names] = imported_module.default_export
+            elif isinstance(names, list):
+                for name in names:
+                    module.scope[name] = imported_module.exports[name]
+            else:
+                raise RuntimeError
+
+        elif isinstance(statement, builtins.Export):
+            if isinstance(statement.arg, builtins.Const):
+                name, value = statement.arg.arg.left, statement.arg.arg.right
+                module.scope[name] = value
+                module.exports[name] = value
+            else:  # isinstance(statement.arg, builtins.Default)
+                module.default_export = statement.arg.arg
 
         else:
-            module.value = get(module.scope, node)
+            module.value = statement
 
     return module
-
-
-def get(scope: Scope, value: Value) -> Value:
-    if value is None or isinstance(value, (str, float, int, bool, builtins.TrustedHtml)):
-        return value
-    if isinstance(value, list):
-        return list_handler(scope, value)
-    if isinstance(value, dict):
-        return dict_handler(scope, value)
-    if isinstance(value, parser.Var):
-        return var_handler(scope, value)
-    if isinstance(value, parser.Dot):
-        return dot_handler(scope, value)
-    if isinstance(value, parser.Function):
-        return function_handler(scope, value)
-    if isinstance(value, parser.FunctionCall):
-        return function_call_handler(scope, value)
-    if isinstance(value, parser.Eq):
-        return eq_handler(scope, value)
-    if isinstance(value, parser.Ternary):
-        return ternary_handler(scope, value)
-    if isinstance(value, parser.Template):
-        return template_handler(scope, value)
-    else:
-        raise RuntimeError(f"unsupported value type: {type(value)}.\n{value.pretty()}")
-
-
-def list_handler(scope: Scope, value: list) -> Value:
-    out = []
-    for x in value:
-        if isinstance(x, parser.RestVar):
-            rest_value = get(scope, x.var)
-            assert isinstance(rest_value, list)
-            for y in rest_value:
-                out.append(get(scope, y))
-        else:
-            out.append(get(scope, x))
-    return out
-
-
-def dict_handler(scope: Scope, value: dict) -> Value:
-    out = {}
-    for k, v in value.items():
-        if isinstance(k, parser.RestVar):
-            rest_value = get(scope, k.var)
-            assert isinstance(rest_value, dict)
-            for u, w in rest_value.items():
-                out[u] = get(scope, w)
-        else:
-            out[k] = get(scope, v)
-    return out
-
-
-_m = MakeFunction(builtins.m)
-
-
-def var_handler(scope: Scope, value: parser.Var) -> Value:
-    if value.name == "Object" and "Object" not in scope:
-        return builtins.Object
-    if value.name == "m" and "m" not in scope:
-        return _m
-    if value.name == "dedent" and "dedent" not in scope:
-        return MakeFunction(builtins.dedent)
-    return scope[value.name]
-
-
-def dot_handler(scope: Scope, value: parser.Dot) -> Value:
-    left = get(scope, value.left)
-
-    if isinstance(left, list):
-        if value.right == "length":
-            return builtins.length(left)
-        if value.right == "map":
-            return MakeFunction(partial(builtins.map, left))
-        if value.right == "filter":
-            return MakeFunction(partial(builtins.filter_, left))
-        if value.right == "reduce":
-            return MakeFunction(partial(builtins.reduce_, left))
-        if value.right == "includes":
-            return MakeFunction(partial(builtins.includes, left))
-
-    if left is _m:
-        if value.right == "trust":
-            return MakeFunction(builtins.m_dot_trust)
-
-    if left is builtins.Object:
-        if value.right == "fromEntries":
-            return MakeFunction(builtins.from_entries)
-        if value.right == "entries":
-            return MakeFunction(builtins.entries)
-
-    if isinstance(left, str):
-        return undefined
-
-    return left.get(value.right, undefined)
-
-
-def function_handler(scope: Scope, value: parser.Function) -> Value:
-    arg_names = []
-    first = next(iter(value.args), None)
-    first_arg_is_destructure = isinstance(first, list)
-    if first_arg_is_destructure:
-        for var in first:
-            assert isinstance(var, parser.Var)
-            arg_names.append(var.name)
-    for var in value.args[1:] if first_arg_is_destructure else value.args:
-        arg_names.append(var.name)
-    return Function(
-        scope=scope,
-        arg_names=arg_names,
-        return_value=value.return_value,
-        first_arg_is_destructure=first_arg_is_destructure,
-    )
-
-
-def function_call_handler(scope: Scope, value: parser.FunctionCall) -> Value:
-    function = get(scope, value.var)
-    values = get(scope, value.values)
-    if not (isinstance(function, Function) or isinstance(function, MakeFunction)):
-        raise ValueError(f"{function} is not of type Function")
-    return function(*values)
-
-
-def eq_handler(scope: Scope, value: parser.Eq) -> Value:
-    left = get(scope, value.left)
-    right = get(scope, value.right)
-    return builtins.equal(left, right)
-
-
-def ternary_handler(scope: Scope, value: parser.Ternary) -> Value:
-    predicate = get(scope, value.predicate)
-    return get(scope, value.if_true) if predicate else get(scope, value.if_not_true)
-
-
-def template_handler(scope: Scope, value: parser.Template) -> Value:
-    values = get(scope, value.values)
-    return "".join(str(x) for x in values)
