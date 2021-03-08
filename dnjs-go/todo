@@ -1,0 +1,16 @@
+- will two lines of comments work?
+- use backticks more with the literal assertions
+- CapitalCase everything public (Eof, Literal etc)
+- template parser logic feels a bit brittle
+- flip all assertions
+- what do I provide as an interface?
+- render() for a server
+- add x["foo"]
+- make undefined a better value
+- get toString and === formalised
+- use type switch not Kind everywhere
+-test m() with empyt class list
+
+Thoughts on go:
+- best bit is the mutation and reference bit, noone seems to mention this
+- worst bit is how nil doesn't seem to fit in the type system properly, that and the if err != nil noise
