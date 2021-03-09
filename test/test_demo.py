@@ -20,19 +20,23 @@ class Node:
         return "'" + s_expression if self.is_quoted else s_expression
 
 
-def parse(token_stream: t.TokenStream, rbp: int) -> Node:
+def parse(token_stream: t.TokenStream, rbp: int, i) -> Node:
+    print("    " * i + f"parse(rbp={rbp}) before is {token_stream.current.value}")
     before = token_stream.current
 
-    if before.type in [t.number, t.name]:         # A
+    if before.type in [t.number, t.name]:
+        print("    " * i + f"hit number|name branch")
         token_stream.advance()
         node = Node(before, [])
 
-    elif before.type == "[":                      # B
+    elif before.type == "[":
+        print("    " * i + f"hit [ branch")
         token_stream.advance()
         children = []
         while token_stream.current.type != "]":
-            children.append(parse(token_stream, 0))
-            if token_stream.current.type != "]":  # C
+            children.append(parse(token_stream, 0, i + 1))
+            print()
+            if token_stream.current.type != "]":
                 assert token_stream.current.type == ","
                 token_stream.advance()
         token_stream.advance()
@@ -41,33 +45,47 @@ def parse(token_stream: t.TokenStream, rbp: int) -> Node:
     else:
         raise RuntimeError
 
-    return _parse_led(token_stream, rbp, node)
+    out = _parse_infix(token_stream, rbp, node, i + 1)
+    print("    " * i + f"return {out}")
+    return out
 
 
-def _parse_led(token_stream: t.TokenStream, rbp: int, left: Node) -> Node:
+def _parse_infix(token_stream: t.TokenStream, rbp: int, left: Node, i) -> Node:
+    print("    " * i + f"infix(rbp={rbp}, left={left}) before is {token_stream.current.value or 'eof'}")
     before = token_stream.current
-    null_types = ["[", t.number, t.name, "]", t.eof, ","]
 
-    if before.type == "===":                      # D
-        if rbp >= 2:                              # E
+    if before.type == "===":
+        print("    " * i + f"hit === branch")
+        if rbp >= 2:
+            print("    " * i + f"hit high precedence branch")
+            print("    " * i + f"return {left}")
             return left
         token_stream.advance()
-        right = parse(token_stream, 2)
-        return _parse_led(token_stream, rbp, Node(before, [left, right]))
+        right = parse(token_stream, 2, i + 1)
+        print()
+        node = _parse_infix(token_stream, rbp, Node(before, [left, right]), i + 1)
+        print("    " * i + f"return {node}")
+        return node
 
-    elif before.type == ".":                      # F
-        if rbp >= 3:                             # G
+    if before.type == ".":
+        print("    " * i + f"hit . branch")
+        if rbp >= 3:
+            print("    " * i + f"hit high precedence branch")
+            print("    " * i + f"return {left}")
             return left
         token_stream.advance()
-        right = parse(token_stream, 3)
-        return _parse_led(token_stream, rbp, Node(before, [left, right]))
+        right = parse(token_stream, 3, i + 1)
+        print()
+        node = _parse_infix(token_stream, rbp, Node(before, [left, right]), i + 1)
+        print("    " * i + f"return {node}")
+        return node
 
-    elif before.type in null_types:               # H
-        return left
 
-    raise RuntimeError
+    print("    " * i + f"didn't hit any branch")
+    print("    " * i + f"return {left}")
+    return left
 
 
 def test_demo():
     token_stream = t.TokenStream.from_source("foo.bar === [1, 2, 3]")
-    assert str(parse(token_stream, 0)) == "(=== (. foo bar) ([ 1 2 3))"
+    assert str(parse(token_stream, 0, 0)) == "(=== (. foo bar) ([ 1 2 3))"
