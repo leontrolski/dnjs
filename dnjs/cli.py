@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any, Callable
 
 import click
@@ -32,14 +33,14 @@ def main(filename, html, css, name, process, args, raw, csv, pdb):
         if filename == "-":
             module = interpreter.interpret(source=click.get_text_stream('stdin').read())
         else:
-            module = interpreter.interpret(path=path)
+            module = interpreter.interpret(path=Path(filename))
         if name:
             if name not in module.exports:
-                raise RuntimeError(f"{name} not in {path} exports")
+                raise RuntimeError(f"{name} not in {filename} exports")
             value = module.exports[name]
         else:
             if module.default_export is interpreter.missing and module.value is interpreter.missing:
-                raise RuntimeError(f"{path} has no default export")
+                raise RuntimeError(f"{filename} has no default export")
             if module.default_export is not interpreter.missing:
                 value = module.default_export
             else:

@@ -1,8 +1,8 @@
 # Writing a JS interpreter in Python
 
-Let's write a Pratt parser ad an interpreter for a subset of JS with Python!
+Let's write a Pratt parser and an interpreter for a subset of JS with Python(/go)!
 
-This type of parser has become fairly popular due to it's simplicity, in fact I'm part of a [long lineage](https://www.oilshell.org/blog/2017/03/31.html) of bloggers - it's the "monad is a burrito" of parsing posts. I thought I'd bother writing up my attempt as I had a fun time writing it and was particularly happy with the brevity of the resulting code - I think this really exposes how lovely a parsing method it is. Thank you thank you [Andy C](https://andychu.net/) for bringing it into my life.
+This type of parser has become fairly popular due to it's simplicity and how easily it handles, in fact I'm part of a [long lineage](https://www.oilshell.org/blog/2017/03/31.html) of bloggers - it's the "monad is a burrito" of parsing posts. I thought I'd bother writing up my attempt as I had a fun time writing it and was particularly happy with the brevity of the resulting code - I think this really exposes how lovely a parsing method it is. Thank you thank you [Andy C](https://andychu.net/) for bringing it into my life.
 
 Also, I feel I gained some deeper understanding of JS in writing it, so hopefully you will gain some in reading.
 
@@ -38,7 +38,8 @@ Let's see how they work:
 ```
 >>> from dnjs import tokeniser
 
->>> t = tokeniser.TokenStream.from_source('[1, "two", foo]')
+>>> source = '[1, "two", foo]'
+>>> t = tokeniser.TokenStream.from_source(source)
 
 >>> t.current
 Token(type='[',      value='[',     pos=0,  lineno=1, linepos=0 )
@@ -109,7 +110,7 @@ So, each S-expression is of the form:
 (operator child child)
 ```
 
-If we have one child, the operator is "unary", two children is "binary", three children is "ternary" and any number of children is "variadic".
+If we have no child, we have an "atom", one child, the operator is "unary", two children is "binary", three children is "ternary" and any number of children is "variadic".
 
 Some of the S-expressions are quoted like this:
 
@@ -155,6 +156,41 @@ We're now going to look at a reduced version of `dnjs`'s parser, our aim is goin
 ```token_stream = t.TokenStream.from_source("foo.bar === [1, 2, 3]")
 assert str(parse(token_stream, 0)) == "(=== (. foo bar) ([ 1 2 3))"```
 
+The Pratt parsing algorithm is in essence:
+
+```
+def parse(rbp) -> Node
+    before = token_stream.current
+
+    if before is an atom:
+        node = Node(before)
+
+    elif before is an array, object, etc:
+        children = []
+        while token_stream.current is not ] or }:
+            children.append(parse(rbp))
+        node = Node(before, children)
+
+    return infix(rbp, node)
+
+def infix(rbp, left) -> Node:
+    before = token_stream.current
+
+    if before is === :
+        next_rbp = 2
+        if rbp >= next_rbp:
+            return left
+        right = parse(next_rbp)
+        return infix(rbp, Node(before, [left, right])
+
+    elif before is . :
+        next_rbp = 3
+        ... for all infix operators
+
+    else:
+        return left
+```
+
 [Here]() is the demo parser, we're going to follow though step-by-step.
 
 Our tokens are as follows:
@@ -173,22 +209,55 @@ Token(type='number', value='3'  )
 Token(type=']',      value=']'  )
 ```
 
-Let's follow the parsing process, I'm going to represent the nodes with the S-expression syntax.
+Let's follow this parsing process, I'm going to represent the nodes with the S-expression syntax.
+
+├── parse(rbp=0) before is foo
+├── hit number|name branch
+│   ├── infix(rbp=0, left=foo) before is .
+│   ├── hit . branch
+│   │   ├── parse(rbp=3) before is bar
+│   │   ├── hit number|name branch
+│   │   │   ├── infix(rbp=3, left=bar) before is ===
+│   │   │   ├── hit === branch
+│   │   │   ├── hit high precedence branch
+│   │   │   └── return bar
+│   │   └── return bar
+│   ├── right = bar
+│   │   ┌── infix(rbp=0, left=(. foo bar)) before is ===
+│   │   ├── hit === branch
+│   │   │   ├── parse(rbp=2) before is [
+│   │   │   ├── hit [ branch
+│   │   │   │   ├── parse(rbp=0) before is 1
+│   │   │   │   ├── hit number|name branch
+│   │   │   │   │   ├── infix(rbp=0, left=1) before is ,
+│   │   │   │   │   ├── didn't hit any branch
+│   │   │   │   │   └── return 1
+│   │   │   │   └── return 1
+│   │   │   │   ┌── parse(rbp=0) before is 2
+│   │   │   │   ├── hit number|name branch
+│   │   │   │   │   ├── infix(rbp=0, left=2) before is ,
+│   │   │   │   │   ├── didn't hit any branch
+│   │   │   │   │   └── return 2
+│   │   │   │   └── return 2
+│   │   │   │   ┌── parse(rbp=0) before is 3
+│   │   │   │   ├── hit number|name branch
+│   │   │   │   │   ├── infix(rbp=0, left=3) before is ]
+│   │   │   │   │   ├── didn't hit any branch
+│   │   │   │   │   └── return 3
+│   │   │   │   └── return 3
+│   │   │   │   ┌── infix(rbp=2, left=([ 1 2 3)) before is eof
+│   │   │   │   ├── didn't hit any branch
+│   │   │   │   └── return ([ 1 2 3)
+│   │   │   └── return ([ 1 2 3)
+│   │   ├── right = ([ 1 2 3)
+│   │   │   ┌── infix(rbp=0, left=(=== (. foo bar) ([ 1 2 3))) before is eof
+│   │   │   ├── didn't hit any branch
+│   │   │   └── return (=== (. foo bar) ([ 1 2 3))
+│   │   └── return (=== (. foo bar) ([ 1 2 3))
+│   └── return (=== (. foo bar) ([ 1 2 3))
+└── return (=== (. foo bar) ([ 1 2 3))
 
 
-`rbp is 0`
-- `before is foo`, we hit A, `node = foo`
-- enter the loop
-    - `before is .`, we hit F, skip G, `node = (. foo parse(...))`
+# Interpreting
 
-    `rbp is 20`
-    - `before is bar`, we hit A, `node = bar`
-    - enter the loop
-        - `before is ===`, we hit D, hit E and return `bar`
-
-    `node = (. foo bar)`
-
-    - `before is still ===`, we hit D, skip E, `node = (=== (. foo bar) parse(...))`
-
-    `rbp is 11`
-    - `before is [`, we hit B,
+Coming soon...
