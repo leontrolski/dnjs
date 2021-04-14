@@ -9,7 +9,15 @@ import (
 )
 
 var missing = "<missing>"
-var undefined = "<undefined>" // this should be some singleton
+
+type _Undefined struct{}
+
+// on converting to JSON, we turn undefined into null
+func (d _Undefined) MarshalJSON() ([]byte, error) {
+	return []byte("null"), nil
+}
+
+var undefined = _Undefined{}
 
 // Value should really be
 //  int64

@@ -115,6 +115,10 @@ def test_as_jq():
     assert out.returncode == 0
     assert out.stdout == b'[["one",1],["two",2]]\n'
 
+    out = call(CMD + "-p 'a=>a.map(b=>b.barrr)' -", input=JSON)
+    assert out.returncode == 0
+    assert out.stdout == b'[null,null]\n'
+
     out = call(CMD + "-p 'a=>a.map(b=>[b.bar, b.foo])' --csv -", input=JSON)
     assert out.returncode == 0
     assert out.stdout == b'"one",1\n"two",2\n'

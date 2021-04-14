@@ -3,8 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func i(t *testing.T, s string) string {
@@ -66,7 +67,7 @@ func TestEq(t *testing.T) {
 func TestObjectAndDot(t *testing.T) {
 	assert.Equal(t, i(t, "{foo: 42}"), `{"foo":42}`)
 	assert.Equal(t, i(t, "({foo: 42}).foo"), `42`)
-	assert.Equal(t, i(t, "({foo: 42}).bar"), "\"\\u003cundefined\\u003e\"")
+	assert.Equal(t, i(t, "({foo: 42}).bar"), "null")
 	assert.Equal(t, getErr(t, "({foo: 42}).bar.rar"), `<ParserError line:1>
 cannot get .rar, value is undefined
 ({foo: 42}).bar.rar
