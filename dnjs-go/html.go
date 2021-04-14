@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"html"
-	"reflect"
 	"sort"
 	"strings"
 )
@@ -37,10 +36,9 @@ func toHtml(value Value, indent int) (string, error) {
 	if value == nil {
 		return "", nil
 	}
-	if reflect.TypeOf(value) == reflect.TypeOf(TrustedHtml{}) {
-		return indentString + value.(TrustedHtml).Html, nil
-	}
 	switch v := value.(type) {
+	case TrustedHtml:
+		return indentString + value.(TrustedHtml).Html, nil
 	case string:
 		return indentString + html.EscapeString(v), nil
 	case int64:
@@ -82,7 +80,7 @@ func toHtml(value Value, indent int) (string, error) {
 		v := attrs[k]
 		if k == "className" {
 			k = "class"
-			if reflect.ValueOf(v).IsZero() {
+			if v == nil || v == "" {
 				continue
 			}
 		}

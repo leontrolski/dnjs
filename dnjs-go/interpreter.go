@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 )
@@ -136,9 +135,8 @@ func interpret(tokenStream *TokenStream) (Module, error) {
 			return Module{}, err
 		}
 
-		statementType := reflect.TypeOf(statement)
-		if statementType == reflect.TypeOf(Unary{}) {
-			op := statement.(Unary)
+		switch op := statement.(type) {
+		case Unary:
 			if op.Node.Token.Type == "const" {
 				assignment := op.Arg.(Binary)
 				name := assignment.Left.(string)
@@ -165,12 +163,13 @@ func interpret(tokenStream *TokenStream) (Module, error) {
 				}
 				importedModule := module
 
-				if reflect.TypeOf(names).Kind() == reflect.String {
+				switch typed := names.(type) {
+				case string:
 					if importedModule.DefaultExport == missing {
 						return Module{}, ParseError{"missing export default", op.Node.Token}
 					}
-					scope[names.(string)] = importedModule.DefaultExport
-				} else {
+					scope[typed] = importedModule.DefaultExport
+				default:
 					for _, name := range names.([]Value) {
 						scope[name.(string)] = importedModule.Exports[name.(string)]
 					}
@@ -189,7 +188,7 @@ func interpret(tokenStream *TokenStream) (Module, error) {
 			} else {
 				panic("unknown token type")
 			}
-		} else {
+		default:
 			module.Value = statement
 		}
 	}
@@ -268,20 +267,15 @@ func identityHandler(_ Scope, _ Node, values ...Value) (Value, error) {
 
 func eqHandler(_ Scope, node Node, values ...Value) (Value, error) {
 	left, right, _ := getBinary(values, true)
-	leftType := reflect.TypeOf(left)
-	rightType := reflect.TypeOf(right)
-	if leftType != rightType {
-		return false, nil
+	switch left.(type) {
+	case float64:
+		switch right.(type) {
+		case float64:
+			return math.Abs(left.(float64)-right.(float64)) <= 1e-9, nil
+		}
 	}
-	if leftType.Kind() == reflect.Float64 && rightType.Kind() == reflect.Float64 {
-		return math.Abs(left.(float64)-right.(float64)) <= 1e-9, nil
-	}
+	// will this fail if left.(type) != right.(type) ?
 	return left == right, nil
-}
-
-func isArray(value Value) bool {
-	valueKind := reflect.TypeOf(value).Kind()
-	return valueKind == reflect.Slice || valueKind == reflect.Array
 }
 
 func dotHandler(_ Scope, node Node, values ...Value) (Value, error) {
@@ -289,8 +283,8 @@ func dotHandler(_ Scope, node Node, values ...Value) (Value, error) {
 	if value == undefined {
 		return nil, ParseError{fmt.Sprintf("cannot get .%s, value is undefined", name), node.Token}
 	}
-	if isArray(value) {
-		l := value.([]Value)
+	switch l := value.(type) {
+	case []Value:
 		switch name {
 		case "length":
 			return int64(len(l)), nil
@@ -305,21 +299,19 @@ func dotHandler(_ Scope, node Node, values ...Value) (Value, error) {
 		}
 	}
 
-	if reflect.TypeOf(value) == reflect.TypeOf(BuiltinFunction{}) && value.(BuiltinFunction).Name == "m" {
-		if name == "trust" {
+	switch typed := value.(type) {
+	case BuiltinFunction:
+		if typed.Name == "m" && name == "trust" {
 			return BuiltinFunction{"m.trust", dotTrust}, nil
 		}
+	case map[string]Value:
+		out, ok := typed[name.(string)]
+		if !ok {
+			return undefined, nil
+		}
+		return out, nil
 	}
-
-	if reflect.TypeOf(value).Kind() != reflect.Map {
-		return undefined, nil
-	}
-
-	out, ok := value.(map[string]Value)[name.(string)]
-	if !ok {
-		return undefined, nil
-	}
-	return out, nil
+	return undefined, nil
 }
 
 func colonHandler(_ Scope, _ Node, values ...Value) (Value, error) {
@@ -342,7 +334,7 @@ func applyHandler(_ Scope, node Node, values ...Value) (Value, error) {
 
 func ternaryHandler(scope Scope, _ Node, values ...Value) (Value, error) {
 	predicate, ifTrue, ifFalse, _ := getTernary(values, true)
-	if !reflect.ValueOf(predicate).IsZero() {
+	if truthy(predicate) {
 		ifTrueNode := ifTrue.(Node)
 		ifTrueNode.IsQuoted = false
 		return interpretNode(scope, ifTrueNode)
@@ -355,16 +347,18 @@ func ternaryHandler(scope Scope, _ Node, values ...Value) (Value, error) {
 func objectHandler(_ Scope, _ Node, values ...Value) (Value, error) {
 	out := map[string]Value{}
 	for _, value := range values {
-		if reflect.TypeOf(value) == reflect.TypeOf(Unary{}) {
-			ellipsis := value.(Unary).Arg
-			if reflect.TypeOf(ellipsis).Kind() != reflect.Map {
+		switch typed := value.(type) {
+		case Unary:
+			switch ellipsis := typed.Arg.(type) {
+			case map[string]Value:
+				for k, v := range ellipsis {
+					out[k] = v
+				}
+			default:
 				return nil, ParseError{"must be of type: {", value.(Unary).Node.Children[0].Token}
 			}
-			for k, v := range ellipsis.(map[string]Value) {
-				out[k] = v
-			}
-		} else {
-			k, v, _ := getBinary(value.([]Value), true)
+		case []Value:
+			k, v, _ := getBinary(typed, true)
 			out[k.(string)] = v
 		}
 	}
@@ -374,15 +368,17 @@ func objectHandler(_ Scope, _ Node, values ...Value) (Value, error) {
 func arrayHandler(_ Scope, _ Node, values ...Value) (Value, error) {
 	out := []Value{}
 	for _, value := range values {
-		if reflect.TypeOf(value) == reflect.TypeOf(Unary{}) {
-			ellipsis := value.(Unary).Arg
-			if !isArray(ellipsis) {
+		switch typed := value.(type) {
+		case Unary:
+			switch ellipsis := typed.Arg.(type) {
+			case []Value:
+				for _, v := range ellipsis {
+					out = append(out, v)
+				}
+			default:
 				return nil, ParseError{"must be of type: [", value.(Unary).Node.Children[0].Token}
 			}
-			for _, v := range ellipsis.([]Value) {
-				out = append(out, v)
-			}
-		} else {
+		default:
 			out = append(out, value)
 		}
 	}
@@ -414,20 +410,25 @@ func (f DnjsFunction) Call(node Node, args ...Value) (Value, error) {
 		newScope[k] = v
 	}
 	for i, argName := range f.ArgNames {
-		if isArray(argName) {
-			if !isArray(args[i]) {
+		switch typedArgName := argName.(type) {
+		case []Value:
+			switch typedArg := args[i].(type) {
+			case []Value:
+				for j, nestedArgName := range typedArgName {
+					if i < len(args) && j < len(typedArg) {
+						newScope[nestedArgName.(string)] = typedArg[j]
+					}
+				}
+			default:
 				return nil, ParseError{
 					"cannot unpack argument",
 					node.Children[1].Children[i].Token,
 				}
 			}
-			for j, nestedArgName := range argName.([]Value) {
-				if i < len(args) && j < len(args[i].([]Value)) {
-					newScope[nestedArgName.(string)] = args[i].([]Value)[j]
-				}
+		default:
+			if i < len(args) {
+				newScope[argName.(string)] = args[i]
 			}
-		} else if i < len(args) {
-			newScope[argName.(string)] = args[i]
 		}
 	}
 	outNode := f.OutNode

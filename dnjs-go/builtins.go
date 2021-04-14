@@ -2,10 +2,23 @@ package main
 
 import (
 	"fmt"
-	"reflect"
 	"regexp"
 	"strings"
 )
+
+func truthy(value Value) bool {
+	switch typed := value.(type) {
+	case int64:
+		return typed != int64(0)
+	case float64:
+		return typed != float64(0)
+	case string:
+		return typed != ""
+	case bool:
+		return typed
+	}
+	return value != nil
+}
 
 // dot builtin methods
 
@@ -47,7 +60,7 @@ func dotFilter(l []Value) func(Node, ...Value) (Value, error) {
 			if err != nil {
 				return nil, err
 			}
-			if !reflect.ValueOf(n).IsZero() {
+			if truthy(n) {
 				out = append(out, v)
 			}
 		}
@@ -167,7 +180,7 @@ func m(node Node, values ...Value) (Value, error) {
 		out["attrs"] = attrs
 		return out, nil
 	}
-	args := values[1:len(values)]
+	args := values[1:]
 	tail := args
 	if len(args) > 0 && !isRenderable(args[0]) {
 		additionalAttrs, ok := args[0].(map[string]Value)
@@ -178,7 +191,7 @@ func m(node Node, values ...Value) (Value, error) {
 			attrs[k] = v
 		}
 		if len(args) > 1 {
-			tail = args[1:len(args)]
+			tail = args[1:]
 		} else {
 			tail = []Value{}
 		}
@@ -207,16 +220,17 @@ func m(node Node, values ...Value) (Value, error) {
 		if v == nil {
 			return nil
 		}
-		if isArray(v) {
-			for _, v := range v.([]Value) {
+		switch typed := v.(type) {
+		case []Value:
+			for _, v := range typed {
 				err := addChildren(v)
 				if err != nil {
 					return err
 				}
 			}
-		} else {
-			kind := reflect.TypeOf(v).Kind()
-			if kind == reflect.Int64 || kind == reflect.Float64 {
+		default:
+			switch v.(type) {
+			case int64, float64:
 				v = fmt.Sprint(v)
 			}
 			children := append(out["children"].([]Value), v)
@@ -241,23 +255,26 @@ func dotTrust(node Node, values ...Value) (Value, error) {
 	if err != nil {
 		return nil, ParseError{err.Error(), node.Token}
 	}
-	if reflect.TypeOf(value).Kind() != reflect.String {
+	switch typed := value.(type) {
+	case string:
+		return TrustedHtml{typed}, nil
+	default:
 		return nil, ParseError{"can only m.trust(...) string values", node.Token}
 	}
-	return TrustedHtml{value.(string)}, nil
 }
 
 func isVnode(dom Value) bool {
-	if !(reflect.TypeOf(dom).Kind() == reflect.Map) {
-		return false
+	matching := false
+	switch typed := dom.(type) {
+	case map[string]Value:
+		matching = true
+		_, ok := typed["tag"]
+		matching = matching && ok
+		_, ok = typed["attrs"]
+		matching = matching && ok
+		_, ok = typed["children"]
+		matching = matching && ok
 	}
-	matching := true
-	_, ok := dom.(map[string]Value)["tag"]
-	matching = matching && ok
-	_, ok = dom.(map[string]Value)["attrs"]
-	matching = matching && ok
-	_, ok = dom.(map[string]Value)["children"]
-	matching = matching && ok
 	return matching
 }
 
@@ -265,26 +282,11 @@ func isRenderable(dom Value) bool {
 	if dom == nil {
 		return true
 	}
-	if isArray(dom) {
-		return true
-	}
-	kind := reflect.TypeOf(dom).Kind()
-	switch kind {
-	case reflect.String:
-		return true
-	case reflect.Float64:
-		return true
-	case reflect.Int64:
-		return true
-	case reflect.Array:
-		return true
-	case reflect.Slice:
+	switch dom.(type) {
+	case int64, float64, string, TrustedHtml, []Value:
 		return true
 	}
 	if isVnode(dom) {
-		return true
-	}
-	if reflect.TypeOf(dom) == reflect.TypeOf(TrustedHtml{}) {
 		return true
 	}
 	return false

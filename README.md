@@ -1,11 +1,5 @@
 # `dnjs`
 
-`dnjs` is a pure subset of `JavaScript` that wants to replace (across many host languages):
-- overly limiting/baroque **configuration languages**
-- mucky string based `html`/`xml` **templating**
-
-It is powerful yet familiar, and the reduced syntax makes it easy to implement (the reference implementation in `Python` took a couple of days to write) and easy to reason about. Currently the state is very alpha - see the `TODO` at the end.
-
 ```
 ╔══════════════════════════════╗
 ║ ╔═══════════════╗            ║
@@ -16,7 +10,43 @@ It is powerful yet familiar, and the reduced syntax makes it easy to implement (
 ╚══════════════════════════════╝
 ```
 
-## Installing the reference interpreter
+`dnjs` is a pure subset of `JavaScript` that wants to replace (across many host languages - currently `go` and `Python`):
+- `yaml` - Overly limiting/baroque [**configuration languages**](#for-configuration)
+- `handlebars` - Mucky string based `html`/`xml` [**templating**](#for-html-templating) - _see [blog post](https://leontrolski.github.io/semi-isomorphic.html)_
+- `jq` - Unfamiliar `JSON` [**processing languages**](#as-a-jq-replacement)
+
+It is powerful yet familiar, and the reduced syntax makes it easy to implement. _Currently the state is very alpha - see the `TODO` at the end._
+
+
+Feature | Syntax
+---------|----------
+Comments | `//`
+Unquoted `Object` keys | `{a: 42}`
+Trailing commas | `{a: 42, }`
+Imports _(Non-local imports are simply ignored)_ | `import { c } from "./b.dn.js"`
+ | `import b from "./b.dn.js"`
+Exports | `export default a`
+ | `export const b = c`
+Rest syntax | `{...a}`, `[...a]`
+Arrow Functions | `const f = (a, b) => c`
+Ternary expressions | `a === b ? c : d`
+Map | `a.map((v, i) => b)`
+Filter | `a.filter((v, i) => b)`
+Reduce | `a.reduce((x, y) => [...x, ...y], [])`
+Entries | `Object.entries(a).map(([k, v], i) => b)`
+From entries | `Object.fromEntries(a)`
+Hyperscript, somewhat compatible with [mithril](https://mithril.js.org/) | `m("sometag#some-id.some-class.other-class", {"href": "foo.js", "class": ["another-class"]}, children)`
+_Evaluates to_ | `{"tag": "sometag", "attrs": {"id": "some-id", className: "some-class other-class another-class", "href": "foo.js", "children": children}`
+_For trusted html_ | `m.trust(a)`
+Templates | `` `foo ${a}` ``
+Dedent | `` dedent(`foo ${a}`) ``
+List functions | `.length`, `.includes(a)`
+
+## Installing the standalone binary
+
+[Downloads](dnjs-go/dist)
+
+## Installing the Python interpreter/API
 
 ```bash
 pip install dnjs
@@ -45,10 +75,10 @@ export default (environment) => serviceNames.map(
 )
 ```
 
-Let's use the reference implementation written in `Python` to run these (this also has a `Python` API documented below):
+Running:
 
 ```bash
-dnjs examples/configuration.dn.js examples/environment.json | jq
+dnjs --pretty examples/configuration.dn.js examples/environment.json
 ```
 
 Gives us:
@@ -127,7 +157,7 @@ m.mount(document.body, page)
 Or we can render the `html` on the command line similar to before:
 
 ```bash
-dnjs examples/commentsPage.dn.js examples/comments.json --html
+dnjs --html examples/commentsPage.dn.js examples/comments.json
 ```
 
 Note, that without the `--html` flag, we still make the following `JSON`, the conversion to `html` is a post-processing stage:
@@ -171,7 +201,7 @@ to:
 
 ```bash
 JSON='[{foo: 1, bar: "one"}, {foo: 2, bar: "two"}]'
-echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])'
+echo $JSON | dnjs -p 'a=>a.map(b=>[b.bar, b.foo])' -
 ```
 
 ```js
@@ -181,7 +211,7 @@ echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])'
 #### csv
 
 ```bash
-echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])' --csv
+echo $JSON | dnjs -p 'a=>a.map(b=>[b.bar, b.foo])' --csv -
 ```
 
 ```
@@ -192,7 +222,7 @@ echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])' --csv
 #### csv, raw
 
 ```bash
-echo $JSON | dnjs - -p 'a=>a.map(b=>[b.bar, b.foo])' --csv --raw
+echo $JSON | dnjs -p 'a=>a.map(b=>[b.bar, b.foo])' --csv --raw -
 ```
 
 ```
@@ -202,11 +232,9 @@ two,2
 
 #### jsonl
 
-(While `dnjs` is implemented in python, this is very slow).
-
 ```bash
 JSON='{foo: 1, bar: "one"}\n{foo: 2, bar: "two"}'
-echo $JSON | while read l; do echo $l | dnjs - -p 'a=>a.bar' --raw; done
+echo $JSON | while read l; do echo $l | dnjs -p 'a=>a.bar' --raw -; done
 ```
 
 ```
@@ -221,25 +249,6 @@ Remember, you can flatten arrays with:
 ```js
 .reduce((a, b)=>[...a, ...b], [])
 ```
-
-## How exactly does `dnjs` extend `JSON`?
-
-Remember `dnjs` is a **restriction** of `JavaScript`, the aim is not to implement all of it, any more than `JSON` is.
-
-Here are all the extensions to `JSON`:
-
-- Comments with `//`.
-- Optional trailing commas.
-- Unquoted keys in objects.
-- `import { c } from "./b.dn.js"`, `import b from "./b.dn.js"`. Non-local imports are simply ignored (so as to allow importing `m` as anything).
-- `export default a`, `export const b = c`.
-- `dict`s and `list`s can be splatted with rest syntax: `{...a}`/`[...a]`.
-- Functions can be defined with `const f = (a, b) => c` syntax. Brackets are not required for one argument, functions are called with the number of arguments provided.
-- Ternary expressions, _only_ in the form `a === b ? c : d`. Equality should be implemented however `JavaScript` does.
-- Map, filter, reduce, map over dict, dict from entries, in the form `a.map((v, i) => b)`, `a.filter((v, i) => b)`, `a.reduce((x, y) => [...x, ...y], [])`, `Object.entries(a).map(([k, v], i) => b)`, `Object.fromEntries(a)`.
-- Hyperscript, somewhat compatible with [mithril](https://mithril.js.org/) - `m("sometag#some-id.some-class.other-class", {"href": "foo.js", "class": ["another-class"]}, children)`, this evaluates to `dict`s like `{"tag": "sometag", "attrs": {"id": "some-id", className: "some-class other-class another-class", "href": "foo.js", "children": children}`. `m.trust(a)` to not escape html.
-- Multiline templates in the form `` `foo ${a}` ``, `` dedent(`foo ${a}`) ``. `dedent` should work the same as [this npm package](https://www.npmjs.com/package/dedent).
-- Lists have `.length`, `.includes(a)` attributes.
 
 ## Name
 
@@ -318,7 +327,6 @@ npm test
 - Decide what else should be added:
   - Common string functions like upper case, replace etc?
   - `parseInt` etc..
-- Standalone (in `c`/`rust`/`go`? with `Python` bindings) to JSON program.
 - Write JS library that simply wraps mithril render and has a `dnjs.isValid(path)` function that uses the grammar (doing this may involve removing some `lark`-specific bits in the grammar.
 - Typescript support?
 - Consider what prevents `dnjs` from becoming a data interchange format - eg. infinite recursion. `--safe` mode? Specify PATHs that it's permitted to import from.

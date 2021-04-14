@@ -1,3 +1,4 @@
 #!/bin/bash
+echo 'Building binaries...'
 export GOOS=darwin GOARCH=amd64; go build; mkdir -p dist/$GOOS/$GOARCH; mv dnjs-go dist/$GOOS/$GOARCH/dnjs
 export GOOS=linux  GOARCH=amd64; go build; mkdir -p dist/$GOOS/$GOARCH; mv dnjs-go dist/$GOOS/$GOARCH/dnjs

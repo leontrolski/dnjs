@@ -287,20 +287,20 @@ type tableInfix struct {
 }
 
 var rulesPrefix = []tablePrefix{
-	tablePrefix{-1, []string{"=", "=>", ")", "}", "]", ":", eof}, raisePrefixError},
-	tablePrefix{-1, append(atoms, name), prefixAtom},
-	tablePrefix{3, []string{"...", "import", "const", "export", "default"}, prefixUnary},
-	tablePrefix{9, []string{"`"}, prefixVariadicTemplate},
-	tablePrefix{20, []string{"[", "{", "("}, prefixVariadic},
+	{-1, []string{"=", "=>", ")", "}", "]", ":", eof}, raisePrefixError},
+	{-1, append(atoms, name), prefixAtom},
+	{3, []string{"...", "import", "const", "export", "default"}, prefixUnary},
+	{9, []string{"`"}, prefixVariadicTemplate},
+	{20, []string{"[", "{", "("}, prefixVariadic},
 }
 var rulesInfix = []tableInfix{
-	tableInfix{lowPrec, []string{","}, raiseInfixError},
-	tableInfix{colonPrec, []string{":"}, infixBinary},
-	tableInfix{9, []string{"from", "="}, infixBinary},
-	tableInfix{10, []string{"=>"}, infixBinary},
-	tableInfix{11, []string{"==="}, infixBinary},
-	tableInfix{11, []string{"?"}, infixTernary},
-	tableInfix{20, []string{".", "("}, infixBinary},
+	{lowPrec, []string{","}, raiseInfixError},
+	{colonPrec, []string{":"}, infixBinary},
+	{9, []string{"from", "="}, infixBinary},
+	{10, []string{"=>"}, infixBinary},
+	{11, []string{"==="}, infixBinary},
+	{11, []string{"?"}, infixTernary},
+	{20, []string{".", "("}, infixBinary},
 }
 
 func init() {
@@ -352,38 +352,38 @@ func identityMap(a []string) TypeMap {
 var value = identityMap(append([]string{"(", "===", ".", "=>", "?", "[", "`", "{", apply}, atoms...))
 var valueNoBrace = identityMap(append([]string{"(", "===", ".", "=>", "?", "[", "`", apply}, atoms...))
 var childrenTypes = map[string][]TypeMap{
-	name:     []TypeMap{},
-	literal:  []TypeMap{},
-	number:   []TypeMap{},
-	str:      []TypeMap{},
-	template: []TypeMap{},
-	dName:    []TypeMap{},
+	name:     {},
+	literal:  {},
+	number:   {},
+	str:      {},
+	template: {},
+	dName:    {},
 	// unary
-	"statement": []TypeMap{union(identityMap([]string{"const", "import", "export"}), value)},
-	"const":     []TypeMap{identityMap([]string{"="})},
-	"import":    []TypeMap{identityMap([]string{"from"})},
-	"export":    []TypeMap{identityMap([]string{"default", "const"})},
-	"default":   []TypeMap{value},
-	"...":       []TypeMap{value},
-	"(":         []TypeMap{value},
+	"statement": {union(identityMap([]string{"const", "import", "export"}), value)},
+	"const":     {identityMap([]string{"="})},
+	"import":    {identityMap([]string{"from"})},
+	"export":    {identityMap([]string{"default", "const"})},
+	"default":   {value},
+	"...":       {value},
+	"(":         {value},
 	// binary
-	"=":    []TypeMap{TypeMap{name: dName}, value},
-	"===":  []TypeMap{value, value},
-	".":    []TypeMap{valueNoBrace, TypeMap{name: dName}},
-	"from": []TypeMap{TypeMap{"{": dBrace, name: dName}, TypeMap{str: str}},
-	":":    []TypeMap{TypeMap{name: dName, str: str}, value},
-	apply:  []TypeMap{value, TypeMap{many: many}},
-	"=>":   []TypeMap{TypeMap{many: dMany}, valueNoBrace},
+	"=":    {{name: dName}, value},
+	"===":  {value, value},
+	".":    {valueNoBrace, {name: dName}},
+	"from": {{"{": dBrace, name: dName}, {str: str}},
+	":":    {{name: dName, str: str}, value},
+	apply:  {value, {many: many}},
+	"=>":   {{many: dMany}, valueNoBrace},
 	// ternary
-	"?": []TypeMap{value, value, value},
+	"?": {value, value, value},
 	// variadic
-	"[":    []TypeMap{union(value, TypeMap{"...": "..."}), nil},
-	"{":    []TypeMap{TypeMap{":": ":", "...": "..."}, nil},
-	"`":    []TypeMap{value, nil},
-	many:   []TypeMap{value, nil},
-	dBrack: []TypeMap{TypeMap{name: dName}, nil},
-	dBrace: []TypeMap{TypeMap{name: dName}, nil},
-	dMany:  []TypeMap{TypeMap{name: dName, "[": dBrack}, nil},
+	"[":    {union(value, TypeMap{"...": "..."}), nil},
+	"{":    {{":": ":", "...": "..."}, nil},
+	"`":    {value, nil},
+	many:   {value, nil},
+	dBrack: {{name: dName}, nil},
+	dBrace: {{name: dName}, nil},
+	dMany:  {{name: dName, "[": dBrack}, nil},
 }
 
 func convertChildren(node Node) (Node, error) {
