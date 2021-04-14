@@ -1,5 +1,8 @@
 # `dnjs`
 
+| [Install](#installing-the-standalone-binary) | [For Configuration](#for-configuration) | [For HTML templating](#for-html-templating) | [Instead of `jq`](#as-a-jq-replacement)
+----------|------|-----|------
+
 ```
 ╔══════════════════════════════╗
 ║ ╔═══════════════╗            ║
@@ -10,13 +13,13 @@
 ╚══════════════════════════════╝
 ```
 
+
 `dnjs` is a pure subset of `JavaScript` that wants to replace (across many host languages - currently `go` and `Python`):
-- `yaml` - Overly limiting/baroque [**configuration languages**](#for-configuration)
-- `handlebars` - Mucky string based `html`/`xml` [**templating**](#for-html-templating) - _see [blog post](https://leontrolski.github.io/semi-isomorphic.html)_
-- `jq` - Unfamiliar `JSON` [**processing languages**](#as-a-jq-replacement)
+- Overly limiting/baroque configuration languages, eg: `yaml`
+- Mucky string based `HTML`/`XML` templating, eg: `handlebars` - _see [blog post](https://leontrolski.github.io/semi-isomorphic.html)_
+- Unfamiliar `JSON` processing languages, eg: `jq`
 
-It is powerful yet familiar, and the reduced syntax makes it easy to implement. _Currently the state is very alpha - see the `TODO` at the end._
-
+Extensions to `JSON`:
 
 Feature | Syntax
 ---------|----------
@@ -24,9 +27,9 @@ Comments | `//`
 Unquoted `Object` keys | `{a: 42}`
 Trailing commas | `{a: 42, }`
 Imports _(Non-local imports are simply ignored)_ | `import { c } from "./b.dn.js"`
- | `import b from "./b.dn.js"`
+... | `import b from "./b.dn.js"`
 Exports | `export default a`
- | `export const b = c`
+... | `export const b = c`
 Rest syntax | `{...a}`, `[...a]`
 Arrow Functions | `const f = (a, b) => c`
 Ternary expressions | `a === b ? c : d`
@@ -41,6 +44,8 @@ _For trusted html_ | `m.trust(a)`
 Templates | `` `foo ${a}` ``
 Dedent | `` dedent(`foo ${a}`) ``
 List functions | `.length`, `.includes(a)`
+
+It is powerful yet familiar, and the reduced syntax makes it easy to implement. _Currently the state is very alpha - see the `TODO` at the end._
 
 ## Installing the standalone binary
 
@@ -96,9 +101,9 @@ Gives us:
 ]
 ```
 
-### For `html` templating
+### For `HTML` templating
 
-`dnjs` prescribes functions for making `html`, that handily are a subset of [mithril](https://mithril.js.org/) (this makes it possible to write powerful, reusable cross-language `html` components).
+`dnjs` prescribes functions for making `HTML`, that handily are a subset of [mithril](https://mithril.js.org/) (this makes it possible to write powerful, reusable cross-language `HTML` components).
 
 Given the file `commentsPage.dn.js`:
 
@@ -114,7 +119,7 @@ const commentList = (comments) => m("ul",
 export default (comments) => page(commentList(comments))
 ```
 
-Then in a python webserver we can render the file as `html`:
+Then in a python webserver we can render the file as `HTML`:
 
 ```python
 from dnjs import render
@@ -154,13 +159,13 @@ import page from "../commentsPage.dn.js"
 m.mount(document.body, page)
 ```
 
-Or we can render the `html` on the command line similar to before:
+Or we can render the `HTML` on the command line similar to before:
 
 ```bash
 dnjs --html examples/commentsPage.dn.js examples/comments.json
 ```
 
-Note, that without the `--html` flag, we still make the following `JSON`, the conversion to `html` is a post-processing stage:
+Note, that without the `--html` flag, we still make the following `JSON`, the conversion to `HTML` is a post-processing stage:
 
 ```js
 {
@@ -267,7 +272,7 @@ get_default_export(path)
 get_named_export(path, name)
 ```
 
-This function returns html as a `str`:
+This function returns HTML as a `str`:
 
 ```python
 from dnjs import render
